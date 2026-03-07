@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>doc-quality Label Tool</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #111; color: #eee; height: 100vh; display: flex; flex-direction: column; }
+  #top-bar { display: flex; align-items: center; padding: 8px 16px; gap: 12px; background: #1a1a1a; border-bottom: 1px solid #333; flex-shrink: 0; }
+  #top-bar .progress { font-size: 14px; color: #999; }
+  #top-bar .filters { display: flex; gap: 6px; margin-left: auto; }
+  #top-bar .filters button { background: #333; border: 1px solid #555; color: #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  #top-bar .filters button.active { background: #4a7dff; color: #fff; border-color: #4a7dff; }
+  #top-bar .filters button:hover { background: #444; }
+  #top-bar .filters button.active:hover { background: #3a6dee; }
+  #export-btn { background: #2a5a2a; border: 1px solid #3a7a3a; color: #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  #export-btn:hover { background: #3a7a3a; }
+
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #image-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 12px; position: relative; }
+  #image-area img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+  #image-info { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,0.75); padding: 6px 12px; border-radius: 4px; font-size: 13px; }
+  #score-badge { position: absolute; top: 16px; right: 16px; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+  #score-badge.pass { background: #1a4a1a; color: #6f6; }
+  #score-badge.fail { background: #4a1a1a; color: #f66; }
+  #score-badge.loading { background: #333; color: #999; }
+  #score-badge.no-analysis { background: #222; color: #666; }
+
+  #controls { flex-shrink: 0; padding: 12px 16px; background: #1a1a1a; border-top: 1px solid #333; }
+  #category-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  #category-row .cat-label { font-size: 12px; color: #999; }
+  .cat-btn { background: #2a2a2a; border: 1px solid #444; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #ccc; user-select: none; transition: all 0.15s; }
+  .cat-btn:hover { border-color: #888; }
+  .cat-btn.active { background: #2a3a5a; border-color: #4a7dff; color: #8af; }
+  #issue-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .tag { background: #2a2a2a; border: 1px solid #444; padding: 4px 10px; border-radius: 14px; cursor: pointer; font-size: 12px; user-select: none; transition: all 0.15s; }
+  .tag:hover { border-color: #888; }
+  .tag.checked { background: #4a3a1a; border-color: #c90; color: #fc0; }
+  .tag.auto { box-shadow: 0 0 0 1px #666 inset; }
+
+  #action-row { display: flex; align-items: center; gap: 10px; }
+  #notes { flex: 1; background: #222; border: 1px solid #444; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
+  #notes:focus { outline: none; border-color: #4a7dff; }
+  .action-btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .action-btn.very-good { background: #1a6a1a; color: #fff; }
+  .action-btn.very-good:hover { background: #2a8a2a; }
+  .action-btn.good { background: #2a7a2a; color: #fff; }
+  .action-btn.good:hover { background: #3a8a3a; }
+  .action-btn.bad { background: #b63; color: #fff; }
+  .action-btn.bad:hover { background: #c74; }
+  .action-btn.very-bad { background: #c33; color: #fff; }
+  .action-btn.very-bad:hover { background: #d44; }
+  .action-btn.skip { background: #555; color: #fff; }
+  .action-btn.skip:hover { background: #666; }
+
+  #nav-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+  .nav-btn { background: #333; border: 1px solid #555; color: #ccc; padding: 4px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .nav-btn:hover { background: #444; }
+
+  kbd { display: inline-block; background: #333; border: 1px solid #555; border-radius: 3px; padding: 1px 5px; font-size: 11px; color: #aaa; margin-left: 4px; }
+
+  #loading { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; color: #666; }
+  .label-indicator { font-size: 12px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; }
+  .label-indicator.very-good { background: #1a4a1a; color: #6f6; }
+  .label-indicator.good { background: #2a5a2a; color: #8d8; }
+  .label-indicator.bad { background: #4a3a1a; color: #fc0; }
+  .label-indicator.very-bad { background: #4a1a1a; color: #f66; }
+  .label-indicator.skip { background: #333; color: #999; }
+  .label-indicator.pass { background: #1a4a1a; color: #6f6; }
+  .label-indicator.fail { background: #4a1a1a; color: #f66; }
+</style>
+</head>
+<body>
+
+<div id="top-bar">
+  <strong>Label Tool</strong>
+  <span class="progress" id="progress">Loading...</span>
+  <div class="filters">
+    <button class="active" data-filter="all">All</button>
+    <button data-filter="unlabeled">Unlabeled</button>
+    <button data-filter="very-good">Very Good</button>
+    <button data-filter="good">Good</button>
+    <button data-filter="bad">Bad</button>
+    <button data-filter="very-bad">Very Bad</button>
+    <button data-filter="conflicts">Conflicts</button>
+  </div>
+  <button id="export-btn">Export JSON</button>
+</div>
+
+<div id="main">
+  <div id="image-area">
+    <div id="loading">Loading images...</div>
+    <img id="preview" style="display:none" alt="">
+    <div id="image-info" style="display:none"></div>
+    <div id="score-badge" style="display:none"></div>
+  </div>
+
+  <div id="controls" style="display:none">
+    <div id="category-row">
+      <span class="cat-label">Category:</span>
+      <button class="cat-btn" data-cat="document">Document <kbd>D</kbd></button>
+      <button class="cat-btn" data-cat="receipt">Receipt <kbd>R</kbd></button>
+      <button class="cat-btn" data-cat="card">Card <kbd>C</kbd></button>
+      <button class="cat-btn" data-cat="photo">Photo <kbd>P</kbd></button>
+    </div>
+    <div id="issue-tags"></div>
+    <div id="action-row">
+      <input id="notes" type="text" placeholder="Notes (optional)">
+      <button class="action-btn very-bad" id="btn-very-bad">Very Bad <kbd>1</kbd></button>
+      <button class="action-btn bad" id="btn-bad">Bad <kbd>2</kbd></button>
+      <button class="action-btn good" id="btn-good">Good <kbd>3</kbd></button>
+      <button class="action-btn very-good" id="btn-very-good">Very Good <kbd>4</kbd></button>
+      <button class="action-btn skip" id="btn-skip">Skip <kbd>S</kbd></button>
+    </div>
+    <div id="nav-row">
+      <button class="nav-btn" id="btn-prev">&larr; Prev <kbd>&larr;</kbd></button>
+      <button class="nav-btn" id="btn-next">Next &rarr; <kbd>&rarr;</kbd></button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ISSUE_MAP = {
+  'Blurry':       ['sharpness', 'fftBlur'],
+  'Too dark':     ['brightness', 'dimBackground'],
+  'Too bright':   ['brightness'],
+  'Glare':        ['shadow'],
+  'Moire':        ['fftMoire'],
+  'Tilted':       ['skew'],
+  'Shadows':      ['shadow', 'darkShadow'],
+  'Low res':      ['resolution'],
+  'Compressed':   ['compression', 'fftJpegArtifact'],
+  'Faded text':   ['textContrast'],
+  'Motion blur':  ['directionalBlur'],
+  'Noisy':        ['fftNoise'],
+  'Partial/cropped': ['partial'],
+};
+
+// Map directory category names to preset names
+const DIR_TO_PRESET = {
+  documents: 'document',
+  receipts: 'receipt',
+  cards: 'card',
+  photos: 'document',
+};
+
+let allImages = [];
+let filteredImages = [];
+let currentIndex = 0;
+let currentFilter = 'all';
+let currentAnalysis = null;
+let currentCategory = 'document';
+let checkedIssues = new Set();
+
+// DOM refs
+const $progress = document.getElementById('progress');
+const $preview = document.getElementById('preview');
+const $imageInfo = document.getElementById('image-info');
+const $scoreBadge = document.getElementById('score-badge');
+const $controls = document.getElementById('controls');
+const $issueTags = document.getElementById('issue-tags');
+const $notes = document.getElementById('notes');
+const $loading = document.getElementById('loading');
+const $catBtns = document.querySelectorAll('.cat-btn');
+
+// Init
+async function init() {
+  const res = await fetch('/api/images');
+  allImages = await res.json();
+  applyFilter();
+  if (filteredImages.length > 0) {
+    $loading.style.display = 'none';
+    $preview.style.display = '';
+    $imageInfo.style.display = '';
+    $controls.style.display = '';
+    showImage(0);
+  } else {
+    $loading.textContent = 'No images found';
+  }
+}
+
+function applyFilter() {
+  if (currentFilter === 'all') {
+    filteredImages = allImages;
+  } else if (currentFilter === 'unlabeled') {
+    filteredImages = allImages.filter(img => !img.label);
+  } else if (['very-good', 'good', 'bad', 'very-bad'].includes(currentFilter)) {
+    filteredImages = allImages.filter(img => img.label && img.label.label === currentFilter);
+  } else if (currentFilter === 'conflicts') {
+    filteredImages = allImages.filter(img => {
+      if (!img.label || !img._analysis) return false;
+      const labelGood = img.label.label === 'very-good' || img.label.label === 'good';
+      return labelGood !== img._analysis.pass;
+    });
+  }
+  if (currentIndex >= filteredImages.length) currentIndex = Math.max(0, filteredImages.length - 1);
+  updateProgress();
+}
+
+function updateProgress() {
+  const labeled = allImages.filter(i => i.label).length;
+  const counts = { 'very-good': 0, 'good': 0, 'bad': 0, 'very-bad': 0 };
+  for (const img of allImages) {
+    if (img.label && counts[img.label.label] !== undefined) counts[img.label.label]++;
+  }
+  const breakdown = `VG:${counts['very-good']} G:${counts['good']} B:${counts['bad']} VB:${counts['very-bad']}`;
+  $progress.textContent = `${labeled}/${allImages.length} labeled [${breakdown}] | showing ${filteredImages.length} (${currentFilter})`;
+}
+
+/** Infer the initial category for an image from its directory or saved label */
+function inferCategory(img) {
+  // Saved label takes precedence
+  if (img.label && img.label.category) return img.label.category;
+  // Infer from directory path
+  const dirCat = img.category; // e.g. 'documents', 'receipts', 'cards', 'photos'
+  return DIR_TO_PRESET[dirCat] || 'document';
+}
+
+function setCategory(cat) {
+  currentCategory = cat;
+  $catBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === cat);
+  });
+}
+
+function showImage(idx) {
+  if (idx < 0 || idx >= filteredImages.length) return;
+  currentIndex = idx;
+  currentAnalysis = null;
+  checkedIssues.clear();
+
+  const img = filteredImages[idx];
+  $preview.src = `/api/image/${encodeURIComponent(img.path)}`;
+  $imageInfo.innerHTML = `<b>${img.path}</b>` +
+    (img.label ? `<span class="label-indicator ${img.label.label}">${img.label.label}</span>` : '');
+
+  // Set category
+  setCategory(inferCategory(img));
+
+  // Restore existing label data
+  if (img.label) {
+    $notes.value = img.label.notes || '';
+    for (const issue of (img.label.issues || [])) checkedIssues.add(issue);
+  } else {
+    $notes.value = '';
+  }
+
+  $scoreBadge.style.display = 'none';
+
+  renderTags();
+  updateProgress();
+}
+
+function renderTags() {
+  const analyzerNames = currentAnalysis
+    ? new Set(currentAnalysis.issues.map(i => i.analyzer))
+    : new Set();
+
+  $issueTags.innerHTML = '';
+  for (const [uiLabel, analyzers] of Object.entries(ISSUE_MAP)) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    const isAuto = analyzers.some(a => analyzerNames.has(a));
+    const isChecked = analyzers.some(a => checkedIssues.has(a));
+    if (isChecked) tag.classList.add('checked');
+    if (isAuto) tag.classList.add('auto');
+    tag.textContent = uiLabel;
+    tag.addEventListener('click', () => {
+      if (isChecked) {
+        for (const a of analyzers) checkedIssues.delete(a);
+      } else {
+        for (const a of analyzers) checkedIssues.add(a);
+      }
+      renderTags();
+    });
+    $issueTags.appendChild(tag);
+  }
+}
+
+async function saveLabel(label) {
+  const img = filteredImages[currentIndex];
+  if (!img) return;
+
+  const body = {
+    path: img.path,
+    label,
+    category: currentCategory,
+    issues: Array.from(checkedIssues),
+    notes: $notes.value.trim(),
+  };
+
+  await fetch('/api/label', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  // Update local state
+  img.label = { label, category: currentCategory, issues: body.issues, notes: body.notes, timestamp: new Date().toISOString() };
+  // Also update in allImages
+  const master = allImages.find(i => i.path === img.path);
+  if (master) master.label = img.label;
+
+  applyFilter();
+
+  // Move to next
+  if (currentIndex < filteredImages.length - 1) {
+    showImage(currentIndex + 1);
+  } else if (filteredImages.length > 0) {
+    showImage(Math.min(currentIndex, filteredImages.length - 1));
+  }
+  updateProgress();
+}
+
+// Button handlers
+document.getElementById('btn-very-bad').addEventListener('click', () => saveLabel('very-bad'));
+document.getElementById('btn-bad').addEventListener('click', () => saveLabel('bad'));
+document.getElementById('btn-good').addEventListener('click', () => saveLabel('good'));
+document.getElementById('btn-very-good').addEventListener('click', () => saveLabel('very-good'));
+document.getElementById('btn-skip').addEventListener('click', () => saveLabel('skip'));
+document.getElementById('btn-prev').addEventListener('click', () => showImage(currentIndex - 1));
+document.getElementById('btn-next').addEventListener('click', () => showImage(currentIndex + 1));
+
+// Category buttons
+$catBtns.forEach(btn => {
+  btn.addEventListener('click', () => setCategory(btn.dataset.cat));
+});
+
+// Filter buttons
+document.querySelectorAll('#top-bar .filters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#top-bar .filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    applyFilter();
+    if (filteredImages.length > 0) showImage(0);
+  });
+});
+
+// Export
+document.getElementById('export-btn').addEventListener('click', () => {
+  window.open('/api/labels', '_blank');
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  // Don't intercept when typing in notes
+  if (document.activeElement === $notes) return;
+
+  switch (e.key.toLowerCase()) {
+    case '1': saveLabel('very-bad'); break;
+    case '2': saveLabel('bad'); break;
+    case '3': saveLabel('good'); break;
+    case '4': saveLabel('very-good'); break;
+    case 's': saveLabel('skip'); break;
+    case 'arrowleft': showImage(currentIndex - 1); break;
+    case 'arrowright': showImage(currentIndex + 1); break;
+    case 'd': setCategory('document'); break;
+    case 'r': setCategory('receipt'); break;
+    case 'c': setCategory('card'); break;
+    case 'p': setCategory('photo'); break;
+  }
+});
+
+init();
+</script>
+</body>
+</html>

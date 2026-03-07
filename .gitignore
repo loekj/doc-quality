@@ -137,3 +137,20 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# macOS
+.DS_Store
+
+# Downloaded dataset images
+images/
+
+# Test fixture images (large binaries) — track labels and mappings only
+test/fixtures/real/documents/
+test/fixtures/real/receipts/
+test/fixtures/real/cards/
+test/fixtures/real/photos/
+!test/fixtures/real/labels.json
+!test/fixtures/real/filename-mapping.json
+
+# Claude Code
+.claude/

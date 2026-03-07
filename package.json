@@ -1,0 +1,90 @@
+{
+  "name": "doc-quality",
+  "version": "0.1.0",
+  "description": "Fast, configurable document & image quality analysis — detect blur, darkness, low resolution, and more before OCR",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./preflight": {
+      "import": {
+        "types": "./dist/preflight.d.ts",
+        "default": "./dist/preflight.js"
+      },
+      "require": {
+        "types": "./dist/preflight.d.cts",
+        "default": "./dist/preflight.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "preflight": ["./dist/preflight.d.ts"]
+    }
+  },
+  "bin": {
+    "doc-quality": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "sharp": ">=0.32.0",
+    "pdf-to-png-converter": ">=3.0.0",
+    "tesseract.js": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "sharp": {
+      "optional": true
+    },
+    "pdf-to-png-converter": {
+      "optional": true
+    },
+    "tesseract.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "pdf-to-png-converter": "^3.0.0",
+    "sharp": "^0.33.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "keywords": [
+    "image-quality",
+    "document-quality",
+    "blur-detection",
+    "ocr",
+    "sharp",
+    "laplacian",
+    "image-analysis",
+    "upload-validation",
+    "pdf"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
