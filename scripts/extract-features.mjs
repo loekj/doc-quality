@@ -22,11 +22,12 @@ import { existsSync } from 'node:fs';
 // Dynamic import so this runs after build
 const { checkQuality, extractFeatures, FEATURE_NAMES } = await import('../dist/index.js');
 
+// Quartile centers: VB=0–0.25, B=0.25–0.50, G=0.50–0.75, VG=0.75–1.00
 const TIER_LABELS = {
-  'very-good': 1.0,
-  'good': 0.75,
-  'bad': 0.25,
-  'very-bad': 0.0,
+  'very-good': 0.87,
+  'good': 0.62,
+  'bad': 0.37,
+  'very-bad': 0.12,
 };
 
 const PRESET_MAP = {
@@ -65,8 +66,18 @@ async function listImages(dir) {
   }
 }
 
+/** Load the main labels.json (label-server output) from inputDir root */
+async function loadMainLabels() {
+  const mainLabelsPath = join(inputDir, 'labels.json');
+  if (existsSync(mainLabelsPath)) {
+    return JSON.parse(await readFile(mainLabelsPath, 'utf-8'));
+  }
+  return {};
+}
+
 async function main() {
   await mkdir(outputDir, { recursive: true });
+  const mainLabels = await loadMainLabels();
 
   for (const [dirName, preset] of Object.entries(PRESET_MAP)) {
     const presetDir = join(inputDir, dirName);
@@ -87,7 +98,13 @@ async function main() {
 
       for (const imagePath of images) {
         const filename = basename(imagePath);
-        const label = labels[filename] ?? defaultLabel;
+        const relPath = `${dirName}/${tier}/${filename}`;
+
+        // Priority: main labels.json score > per-tier override > tier default
+        const mainEntry = mainLabels[relPath];
+        const label = (mainEntry && mainEntry.score != null)
+          ? mainEntry.score
+          : labels[filename] ?? defaultLabel;
 
         try {
           const buffer = await readFile(imagePath);
