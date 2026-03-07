@@ -13,6 +13,7 @@ import type {
   AnalyzerName,
 } from './types.js';
 import type { ConcretePreset } from './defaults.js';
+import { extractFeatures } from './features.js';
 import {
   analyzeResolution,
   analyzeResolutionMax,
@@ -64,6 +65,7 @@ export async function runPipeline(
   const t0 = performance.now();
   const timings: Timing['analyzers'] = {};
   const issues: Issue[] = [];
+  let foregroundRatio: number | undefined;
 
   // ── 0. Boundary detection (if provided) ──────────────────────
   let boundaryResult: BoundaryResult | undefined;
@@ -218,7 +220,8 @@ export async function runPipeline(
     for (let i = 0; i < binData.length; i++) {
       if (binData[i] === 0) darkCount++;
     }
-    push(issues, analyzeTextContrast(darkCount / binData.length, thresholds));
+    foregroundRatio = darkCount / binData.length;
+    push(issues, analyzeTextContrast(foregroundRatio, thresholds));
     timings.textContrast = performance.now() - t;
 
     // Perspective — sharpness uniformity (reuses laplacian data)
@@ -328,12 +331,24 @@ export async function runPipeline(
     timings.ocrConfidence = performance.now() - t;
   }
 
-  // ── Score (multiplicative — multiple issues compound) ────────
-  let score = 1.0;
-  for (const issue of issues) {
-    const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
-    issue.penalty = effectivePenalty;
-    score *= effectivePenalty;
+  // ── Score ───────────────────────────────────────────────────
+  let score: number;
+
+  if (options?.scorer) {
+    const featureVec = extractFeatures(ctx, mode, resolvedPreset, foregroundRatio);
+    score = options.scorer(featureVec, issues);
+    // Still apply penalty overrides for metadata purposes
+    for (const issue of issues) {
+      issue.penalty = penalties?.[issue.analyzer] ?? issue.penalty;
+    }
+  } else {
+    // Default: multiplicative penalties (exact current behavior)
+    score = 1.0;
+    for (const issue of issues) {
+      const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
+      issue.penalty = effectivePenalty;
+      score *= effectivePenalty;
+    }
   }
 
   // NaN guard — if any computation returned NaN, treat as unknown quality

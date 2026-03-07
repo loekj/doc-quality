@@ -23,6 +23,15 @@ export type BoundaryDetectorFn = (
   buffer: Buffer,
 ) => BoundaryResult | null | Promise<BoundaryResult | null>;
 
+/** Scorer function for a single model */
+export type ScorerFn = (features: import('./features.js').FeatureVector, issues: Issue[]) => number;
+
+/** Multi-model scorer — auto-selects model by preset × mode */
+export type Scorer = ScorerFn & {
+  /** Get the underlying model for a specific preset × mode */
+  getModel(preset: string, mode: string): import('./tree-eval.js').XGBModel | undefined;
+};
+
 /** Options for checkQuality() */
 export interface QualityOptions {
   /** Analysis mode: 'fast' runs essential checks, 'thorough' runs all (default: 'fast') */
@@ -76,6 +85,11 @@ export interface QualityOptions {
   ocrWorker?: unknown;
   /** Tesseract language (default: 'eng') */
   ocrLanguage?: string;
+  /**
+   * Custom scorer — replaces multiplicative penalty scoring with ML model.
+   * Use `loadModels()` to create from an XGBoost model bundle.
+   */
+  scorer?: Scorer | ScorerFn;
 }
 
 /** Detection thresholds — all configurable */

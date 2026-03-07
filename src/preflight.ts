@@ -1,5 +1,7 @@
 import type { IssueCode } from './types.js';
 import { ISSUE_GUIDANCE } from './guidance.js';
+import { extractPreflightFeatures } from './preflight-features.js';
+import type { PreflightFeatureVector } from './preflight-features.js';
 
 // ── Public types ─────────────────────────────────────────────────
 
@@ -8,10 +10,14 @@ export interface PreflightOptions {
   thumbnailSize?: number;
   /** Override preflight thresholds */
   thresholds?: Partial<PreflightThresholds>;
+  /** Custom scorer for ML-based preflight scoring */
+  scorer?: (features: PreflightFeatureVector) => number;
 }
 
 export interface PreflightResult {
   pass: boolean;
+  /** ML model score (only present when scorer is used) */
+  score?: number;
   issues: PreflightIssue[];
   metadata: { width: number; height: number; fileSize: number };
   timing: { totalMs: number };
@@ -163,6 +169,14 @@ export async function preflight(
     }
 
     // If resolution is too low, skip pixel analysis — nothing useful to measure
+    // Hoisted stats for ML scorer
+    let meanBrightness = NaN;
+    let maxChannelStdev = NaN;
+    let lapStdev = NaN;
+    let edgeDensity = NaN;
+    let foregroundRatio = NaN;
+    let maxStdev = NaN;
+
     if (megapixels >= t.resolutionMin) {
       // Draw to thumbnail canvas
       const { w, h } = fitInside(width, height, thumbSize);
@@ -194,7 +208,7 @@ export async function preflight(
       const meanR = sumR / pixelCount;
       const meanG = sumG / pixelCount;
       const meanB = sumB / pixelCount;
-      const meanBrightness = (meanR + meanG + meanB) / 3;
+      meanBrightness = (meanR + meanG + meanB) / 3;
 
       // Brightness checks
       if (meanBrightness < t.brightnessMin) {
@@ -209,7 +223,8 @@ export async function preflight(
       const stdevR = Math.sqrt(Math.max(0, sumR2 / pixelCount - meanR * meanR));
       const stdevG = Math.sqrt(Math.max(0, sumG2 / pixelCount - meanG * meanG));
       const stdevB = Math.sqrt(Math.max(0, sumB2 / pixelCount - meanB * meanB));
-      const maxStdev = Math.max(stdevR, stdevG, stdevB);
+      maxStdev = Math.max(stdevR, stdevG, stdevB);
+      maxChannelStdev = maxStdev;
 
       if (maxStdev < t.blankStdevMax) {
         issues.push(makeIssue('blank-page', `Channel stdev ${maxStdev.toFixed(2)} indicates a blank/uniform page`));
@@ -235,14 +250,14 @@ export async function preflight(
 
       if (lapCount > 0) {
         const lapMean = lapSum / lapCount;
-        const lapStdev = Math.sqrt(Math.max(0, lapSum2 / lapCount - lapMean * lapMean));
+        lapStdev = Math.sqrt(Math.max(0, lapSum2 / lapCount - lapMean * lapMean));
 
         if (lapStdev < t.sharpnessMin) {
           issues.push(makeIssue('blurry', `Laplacian stdev ${lapStdev.toFixed(2)} is below minimum ${t.sharpnessMin}`));
         }
 
         // Edge density
-        const edgeDensity = edgePixels / lapCount;
+        edgeDensity = edgePixels / lapCount;
         if (edgeDensity < t.edgeDensityMin) {
           issues.push(makeIssue('low-edge-density', `Edge density ${edgeDensity.toFixed(4)} is below minimum ${t.edgeDensityMin}`));
         }
@@ -253,10 +268,26 @@ export async function preflight(
       for (let i = 0; i < pixelCount; i++) {
         if (grey[i] < 128) darkPixels++;
       }
-      const foregroundRatio = darkPixels / pixelCount;
+      foregroundRatio = darkPixels / pixelCount;
       if (foregroundRatio < t.contrastFgMin) {
         issues.push(makeIssue('low-contrast', `Foreground ratio ${foregroundRatio.toFixed(4)} is below minimum ${t.contrastFgMin}`));
       }
+    }
+
+    // ML scorer path
+    if (options?.scorer) {
+      const features = extractPreflightFeatures({
+        megapixels, fileSize, meanBrightness, maxChannelStdev,
+        laplacianStdev: lapStdev, edgeDensity, foregroundRatio, maxStdev,
+      });
+      const mlScore = options.scorer(features);
+      return {
+        pass: mlScore >= 0.5,
+        score: mlScore,
+        issues,
+        metadata: { width, height, fileSize },
+        timing: { totalMs: Math.round(performance.now() - t0) },
+      };
     }
 
     return {

@@ -37,6 +37,8 @@ export type {
   AnalyzerName,
   IssueCode,
   AnalysisContext,
+  Scorer,
+  ScorerFn,
 } from './types.js';
 
 export { DEFAULT_THRESHOLDS, PRESETS, resolveThresholds, detectPreset } from './defaults.js';
@@ -50,6 +52,12 @@ export { detectDocumentBounds } from './boundary.js';
 export type { OcrResult } from './ocr.js';
 export { preflight, PREFLIGHT_DEFAULTS } from './preflight.js';
 export type { PreflightResult, PreflightIssue, PreflightOptions, PreflightThresholds } from './preflight.js';
+export { extractFeatures, FEATURE_NAMES } from './features.js';
+export type { FeatureVector } from './features.js';
+export { extractPreflightFeatures, PREFLIGHT_FEATURE_NAMES } from './preflight-features.js';
+export type { PreflightFeatureVector } from './preflight-features.js';
+export { loadModels, loadModelSync, loadPreflightModel, evaluateModel } from './tree-eval.js';
+export type { XGBModel, ModelBundle } from './tree-eval.js';
 
 /** Default timeout in ms */
 const DEFAULT_TIMEOUT = 10_000;
