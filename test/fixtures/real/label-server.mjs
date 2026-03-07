@@ -12,8 +12,13 @@
  */
 
 import { createServer } from 'node:http';
-import { readdir, readFile, writeFile, stat } from 'node:fs/promises';
+import { readdir, readFile, writeFile, stat, mkdtemp, unlink } from 'node:fs/promises';
 import { join, extname, relative } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { tmpdir } from 'node:os';
+
+const execFileAsync = promisify(execFile);
 import { fileURLToPath } from 'node:url';
 
 const BASE = fileURLToPath(new URL('.', import.meta.url));
@@ -22,7 +27,7 @@ const PORT = 3847;
 
 const CATEGORIES = ['documents', 'receipts', 'cards', 'photos'];
 const TIERS = ['very-good', 'good', 'bad', 'very-bad', 'unsorted'];
-const VALID_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp', '.pdf']);
+const VALID_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp', '.pdf', '.heic', '.heif']);
 
 const MIME = {
   '.jpg': 'image/jpeg',
@@ -32,6 +37,8 @@ const MIME = {
   '.tif': 'image/tiff',
   '.webp': 'image/webp',
   '.pdf': 'application/pdf',
+  '.heic': 'image/heic',
+  '.heif': 'image/heif',
 };
 
 /** Load or create labels.json */
@@ -147,6 +154,23 @@ const server = createServer(async (req, res) => {
         return;
       }
       const ext = extname(fullPath).toLowerCase();
+
+      // Convert HEIC/HEIF to JPEG for browser compatibility
+      if (ext === '.heic' || ext === '.heif') {
+        const tmpDir = await mkdtemp(join(tmpdir(), 'dq-'));
+        const tmpOut = join(tmpDir, 'converted.jpg');
+        try {
+          await execFileAsync('sips', ['-s', 'format', 'jpeg', fullPath, '--out', tmpOut]);
+          const data = await readFile(tmpOut);
+          res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+          res.end(data);
+        } finally {
+          await unlink(tmpOut).catch(() => {});
+          await unlink(tmpDir).catch(() => {});
+        }
+        return;
+      }
+
       const mime = MIME[ext] ?? 'application/octet-stream';
       const data = await readFile(fullPath);
       res.writeHead(200, { 'Content-Type': mime });
