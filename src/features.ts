@@ -50,7 +50,7 @@ export function extractFeatures(
   // Brightness stats
   let brightnessAvg = NaN;
   let brightnessStdevMax = NaN;
-  if (ctx.stats) {
+  if (ctx.stats && ctx.stats.channels.length > 0) {
     brightnessAvg = ctx.stats.channels.reduce((s, ch) => s + ch.mean, 0) / ctx.stats.channels.length;
     brightnessStdevMax = Math.max(...ctx.stats.channels.map(ch => ch.stdev));
   }
@@ -64,7 +64,9 @@ export function extractFeatures(
     laplacianStdev = ctx.laplacian.stdev;
     laplacianMean = ctx.laplacian.mean;
     laplacianVariance = ctx.laplacian.variance;
-    edgeRatio = ctx.laplacian.edgeCount / ctx.laplacian.length;
+    edgeRatio = ctx.laplacian.length > 0
+      ? ctx.laplacian.edgeCount / ctx.laplacian.length
+      : NaN;
   }
 
   const dpi = ctx.sharpMeta?.density ?? NaN;
@@ -98,16 +100,18 @@ export function extractFeatures(
       const topLen = lw * halfRow;
       const botLen = lapLen - topLen;
 
-      let topSumSq = 0, topSum = 0;
-      for (let i = 0; i < topLen; i++) { topSum += data[i]; topSumSq += data[i] * data[i]; }
-      let botSumSq = 0, botSum = 0;
-      for (let i = topLen; i < lapLen; i++) { botSum += data[i]; botSumSq += data[i] * data[i]; }
+      if (topLen > 0 && botLen > 0) {
+        let topSumSq = 0, topSum = 0;
+        for (let i = 0; i < topLen; i++) { topSum += data[i]; topSumSq += data[i] * data[i]; }
+        let botSumSq = 0, botSum = 0;
+        for (let i = topLen; i < lapLen; i++) { botSum += data[i]; botSumSq += data[i] * data[i]; }
 
-      const topVar = topSumSq / topLen - (topSum / topLen) ** 2;
-      const botVar = botSumSq / botLen - (botSum / botLen) ** 2;
-      const maxVar = Math.max(topVar, botVar);
-      const minVar = Math.min(topVar, botVar);
-      values[16] = minVar > 5 ? maxVar / minVar : NaN;
+        const topVar = topSumSq / topLen - (topSum / topLen) ** 2;
+        const botVar = botSumSq / botLen - (botSum / botLen) ** 2;
+        const maxVar = Math.max(topVar, botVar);
+        const minVar = Math.min(topVar, botVar);
+        values[16] = minVar > 5 ? maxVar / minVar : NaN;
+      }
     }
 
     if (ctx.greyRaw && ctx.greyRaw.height > 20) {
@@ -115,14 +119,21 @@ export function extractFeatures(
       const halfRow = Math.floor(gh / 2);
       const topLen = gw * halfRow;
       const total = grey.length;
+      const botLen = total - topLen;
 
-      let topBright = 0, botBright = 0;
-      for (let i = 0; i < topLen; i++) topBright += grey[i];
-      for (let i = topLen; i < total; i++) botBright += grey[i];
+      if (topLen > 0 && botLen > 0) {
+        let topBright = 0, botBright = 0;
+        for (let i = 0; i < topLen; i++) topBright += grey[i];
+        for (let i = topLen; i < total; i++) botBright += grey[i];
 
-      const topMean = topBright / topLen;
-      const botMean = botBright / (total - topLen);
-      values[17] = Math.abs(topMean - botMean);
+        const topMean = topBright / topLen;
+        const botMean = botBright / botLen;
+        values[17] = Math.abs(topMean - botMean);
+      } else {
+        // Can't compute top/bottom split — skip remaining greyRaw-dependent features
+        values[38] = ctx.sharpMeta?.channels ?? NaN;
+        return { names: FEATURE_NAMES, values };
+      }
 
       // 18-20: shadow edge/center diff
       const stripSize = Math.max(1, Math.floor(Math.min(gw, gh) * 0.1));
@@ -199,10 +210,12 @@ export function extractFeatures(
         }
       }
 
-      // 23: colorSaturation
+      // 23: colorSaturation (requires 3+ color channels)
       if (ctx.stats && ctx.stats.channels.length >= 3) {
         const means = ctx.stats.channels.slice(0, 3).map(ch => ch.mean);
-        values[23] = (Math.max(...means) - Math.min(...means)) / 255;
+        const maxM = Math.max(means[0], means[1], means[2]);
+        const minM = Math.min(means[0], means[1], means[2]);
+        values[23] = (maxM - minM) / 255;
       }
 
       // 24-26: FFT features

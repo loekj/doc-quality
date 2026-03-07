@@ -332,22 +332,40 @@ export async function runPipeline(
   }
 
   // ── Score ───────────────────────────────────────────────────
-  let score: number;
+  let score = 1.0;
+  let usedScorer = false;
 
   if (options?.scorer) {
-    const featureVec = extractFeatures(ctx, mode, resolvedPreset, foregroundRatio);
-    score = options.scorer(featureVec, issues);
-    // Still apply penalty overrides for metadata purposes
-    for (const issue of issues) {
-      issue.penalty = penalties?.[issue.analyzer] ?? issue.penalty;
+    try {
+      const featureVec = extractFeatures(ctx, mode, resolvedPreset, foregroundRatio);
+      const mlScore = options.scorer(featureVec, issues);
+      // Validate scorer output — must be a finite number in [0, 1]
+      if (Number.isFinite(mlScore)) {
+        score = Math.max(0, Math.min(1, mlScore));
+        usedScorer = true;
+      } else {
+        // Scorer returned non-finite — fall back to default scoring
+        score = NaN; // will be caught by fallback below
+      }
+    } catch {
+      // Scorer threw — fall back to default multiplicative scoring.
+      // This ensures the ML layer never crashes the pipeline.
+      score = NaN; // will be caught by fallback below
     }
-  } else {
+  }
+
+  if (!usedScorer) {
     // Default: multiplicative penalties (exact current behavior)
     score = 1.0;
     for (const issue of issues) {
       const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
       issue.penalty = effectivePenalty;
       score *= effectivePenalty;
+    }
+  } else {
+    // Still apply penalty overrides for metadata purposes when scorer was used
+    for (const issue of issues) {
+      issue.penalty = penalties?.[issue.analyzer] ?? issue.penalty;
     }
   }
 

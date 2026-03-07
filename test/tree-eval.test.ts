@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateModel, loadModelSync, loadPreflightModel } from '../src/tree-eval.js';
+import { evaluateModel, loadModelSync, loadPreflightModel, loadModels } from '../src/tree-eval.js';
 import type { XGBModel, TreeNode } from '../src/tree-eval.js';
 
 // Hand-crafted 2-tree model for testing
@@ -100,7 +100,109 @@ describe('evaluateModel', () => {
   });
 });
 
-describe('loadModelSync', () => {
+describe('evaluateModel — robustness', () => {
+  it('returns 0.5 for null/undefined model', () => {
+    expect(evaluateModel(null as unknown as XGBModel, new Float64Array([]))).toBe(0.5);
+    expect(evaluateModel(undefined as unknown as XGBModel, new Float64Array([]))).toBe(0.5);
+  });
+
+  it('returns 0.5 for model with non-array trees', () => {
+    const bad = { trees: 'not-an-array', base_score: 0, objective: 'reg:squarederror' } as unknown as XGBModel;
+    expect(evaluateModel(bad, new Float64Array([1]))).toBe(0.5);
+  });
+
+  it('skips empty tree arrays gracefully', () => {
+    const model: XGBModel = {
+      trees: [[], [{ leaf: 0.2 }]],
+      base_score: 0.3,
+      objective: 'reg:squarederror',
+    };
+    // Only the second tree contributes: 0.3 + 0.2 = 0.5
+    expect(evaluateModel(model, new Float64Array([]))).toBeCloseTo(0.5);
+  });
+
+  it('handles malformed split node (missing split/split_condition) as zero-contribution', () => {
+    // Node has no leaf and no split — malformed
+    const badNode: TreeNode = { left: { leaf: 0.5 }, right: { leaf: 0.9 } };
+    const model: XGBModel = {
+      trees: [[badNode]],
+      base_score: 0.4,
+      objective: 'reg:squarederror',
+    };
+    // Malformed node returns 0, so result = clamp(0.4 + 0) = 0.4
+    expect(evaluateModel(model, new Float64Array([1]))).toBeCloseTo(0.4);
+  });
+
+  it('handles missing left/right children gracefully', () => {
+    // Split node that matches left, but left child is missing
+    const node: TreeNode = { split: 0, split_condition: 10, missing: 0 };
+    const model: XGBModel = {
+      trees: [[node]],
+      base_score: 0.3,
+      objective: 'reg:squarederror',
+    };
+    // feature[0] = 5 <= 10 → go left → left is undefined → returns 0
+    expect(evaluateModel(model, new Float64Array([5]))).toBeCloseTo(0.3);
+  });
+
+  it('respects MAX_TREE_DEPTH to prevent stack overflow', () => {
+    // Build a deeply nested tree (depth > 64)
+    let node: TreeNode = { leaf: 0.1 };
+    for (let i = 0; i < 100; i++) {
+      node = { split: 0, split_condition: 1, missing: 0, left: node, right: { leaf: 0.9 } };
+    }
+    const model: XGBModel = {
+      trees: [[node]],
+      base_score: 0,
+      objective: 'reg:squarederror',
+    };
+    // Should not throw — depth limit kicks in and returns 0
+    const score = evaluateModel(model, new Float64Array([0]));
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThanOrEqual(1);
+  });
+
+  it('handles NaN base_score', () => {
+    const model: XGBModel = {
+      trees: [[{ leaf: 0.3 }]],
+      base_score: NaN,
+      objective: 'reg:squarederror',
+    };
+    // NaN + 0.3 = NaN → guard returns 0.5
+    expect(evaluateModel(model, new Float64Array([]))).toBe(0.5);
+  });
+
+  it('handles Infinity leaf value', () => {
+    const model: XGBModel = {
+      trees: [[{ leaf: Infinity }]],
+      base_score: 0,
+      objective: 'reg:squarederror',
+    };
+    // 0 + Infinity = Infinity → guard returns 0.5
+    expect(evaluateModel(model, new Float64Array([]))).toBe(0.5);
+  });
+
+  it('sigmoid handles extreme values without overflow', () => {
+    const model: XGBModel = {
+      trees: [[{ leaf: 1000 }]],
+      base_score: 0,
+      objective: 'binary:logistic',
+    };
+    const score = evaluateModel(model, new Float64Array([]));
+    expect(score).toBe(1);
+
+    const model2: XGBModel = {
+      trees: [[{ leaf: -1000 }]],
+      base_score: 0,
+      objective: 'binary:logistic',
+    };
+    const score2 = evaluateModel(model2, new Float64Array([]));
+    expect(score2).toBe(0);
+  });
+});
+
+describe('loadModelSync — validation', () => {
   it('parses JSON and returns scorer function', () => {
     const model = makeTestModel();
     const json = JSON.stringify(model);
@@ -111,9 +213,25 @@ describe('loadModelSync', () => {
     const score = scorer(features, []);
     expect(score).toBeCloseTo(0.4);
   });
+
+  it('throws on invalid JSON', () => {
+    expect(() => loadModelSync('not json')).toThrow('invalid JSON');
+  });
+
+  it('throws on missing trees array', () => {
+    expect(() => loadModelSync('{"base_score": 0}')).toThrow('missing "trees" array');
+  });
+
+  it('throws on missing base_score', () => {
+    expect(() => loadModelSync('{"trees": []}')).toThrow('missing or non-numeric "base_score"');
+  });
+
+  it('throws on non-object input', () => {
+    expect(() => loadModelSync('"just a string"')).toThrow('expected an object');
+  });
 });
 
-describe('loadPreflightModel', () => {
+describe('loadPreflightModel — validation', () => {
   it('parses JSON and returns preflight scorer', () => {
     const model = makeTestModel();
     const json = JSON.stringify(model);
@@ -123,5 +241,15 @@ describe('loadPreflightModel', () => {
     const features = { names: ['f0', 'f1'], values: new Float64Array([3, 15]) };
     const score = scorer(features);
     expect(score).toBeCloseTo(0.4);
+  });
+
+  it('throws on invalid JSON', () => {
+    expect(() => loadPreflightModel('{bad')).toThrow('invalid JSON');
+  });
+});
+
+describe('loadModels — validation', () => {
+  it('throws on missing file', async () => {
+    await expect(loadModels('/nonexistent/path.json')).rejects.toThrow('Failed to read model file');
   });
 });

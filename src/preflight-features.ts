@@ -1,7 +1,7 @@
-export const PREFLIGHT_FEATURE_NAMES = [
+export const PREFLIGHT_FEATURE_NAMES: readonly string[] = [
   'megapixels', 'fileSize', 'brightnessAvg', 'brightnessStdevMax',
   'laplacianStdev', 'edgeRatio', 'foregroundRatio', 'blankStdevMax',
-] as const;
+];
 
 export interface PreflightFeatureVector {
   readonly names: readonly string[];
@@ -27,5 +27,5 @@ export function extractPreflightFeatures(stats: {
   values[5] = stats.edgeDensity;
   values[6] = stats.foregroundRatio;
   values[7] = stats.maxStdev;
-  return { names: PREFLIGHT_FEATURE_NAMES as unknown as string[], values };
+  return { names: PREFLIGHT_FEATURE_NAMES, values };
 }

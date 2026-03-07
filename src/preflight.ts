@@ -274,20 +274,29 @@ export async function preflight(
       }
     }
 
-    // ML scorer path
+    // ML scorer path — wrapped in try/catch so a broken model never kills preflight
     if (options?.scorer) {
-      const features = extractPreflightFeatures({
-        megapixels, fileSize, meanBrightness, maxChannelStdev,
-        laplacianStdev: lapStdev, edgeDensity, foregroundRatio, maxStdev,
-      });
-      const mlScore = options.scorer(features);
-      return {
-        pass: mlScore >= 0.5,
-        score: mlScore,
-        issues,
-        metadata: { width, height, fileSize },
-        timing: { totalMs: Math.round(performance.now() - t0) },
-      };
+      try {
+        const features = extractPreflightFeatures({
+          megapixels, fileSize, meanBrightness, maxChannelStdev,
+          laplacianStdev: lapStdev, edgeDensity, foregroundRatio, maxStdev,
+        });
+        const raw = options.scorer(features);
+        // Validate: must be a finite number; clamp to [0, 1]
+        if (Number.isFinite(raw)) {
+          const mlScore = Math.max(0, Math.min(1, raw));
+          return {
+            pass: mlScore >= 0.5,
+            score: mlScore,
+            issues,
+            metadata: { width, height, fileSize },
+            timing: { totalMs: Math.round(performance.now() - t0) },
+          };
+        }
+        // Non-finite result — fall through to default issue-based scoring
+      } catch {
+        // Scorer threw — fall through to default issue-based scoring
+      }
     }
 
     return {
