@@ -13,6 +13,7 @@ import type {
   AnalyzerName,
 } from './types.js';
 import type { ConcretePreset } from './defaults.js';
+import { extractFeatures } from './features.js';
 import {
   analyzeResolution,
   analyzeResolutionMax,
@@ -64,6 +65,7 @@ export async function runPipeline(
   const t0 = performance.now();
   const timings: Timing['analyzers'] = {};
   const issues: Issue[] = [];
+  let foregroundRatio: number | undefined;
 
   // ── 0. Boundary detection (if provided) ──────────────────────
   let boundaryResult: BoundaryResult | undefined;
@@ -218,7 +220,8 @@ export async function runPipeline(
     for (let i = 0; i < binData.length; i++) {
       if (binData[i] === 0) darkCount++;
     }
-    push(issues, analyzeTextContrast(darkCount / binData.length, thresholds));
+    foregroundRatio = darkCount / binData.length;
+    push(issues, analyzeTextContrast(foregroundRatio, thresholds));
     timings.textContrast = performance.now() - t;
 
     // Perspective — sharpness uniformity (reuses laplacian data)
@@ -328,12 +331,42 @@ export async function runPipeline(
     timings.ocrConfidence = performance.now() - t;
   }
 
-  // ── Score (multiplicative — multiple issues compound) ────────
+  // ── Score ───────────────────────────────────────────────────
   let score = 1.0;
-  for (const issue of issues) {
-    const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
-    issue.penalty = effectivePenalty;
-    score *= effectivePenalty;
+  let usedScorer = false;
+
+  if (options?.scorer) {
+    try {
+      const featureVec = extractFeatures(ctx, mode, resolvedPreset, foregroundRatio);
+      const mlScore = options.scorer(featureVec, issues);
+      // Validate scorer output — must be a finite number in [0, 1]
+      if (Number.isFinite(mlScore)) {
+        score = Math.max(0, Math.min(1, mlScore));
+        usedScorer = true;
+      } else {
+        // Scorer returned non-finite — fall back to default scoring
+        score = NaN; // will be caught by fallback below
+      }
+    } catch {
+      // Scorer threw — fall back to default multiplicative scoring.
+      // This ensures the ML layer never crashes the pipeline.
+      score = NaN; // will be caught by fallback below
+    }
+  }
+
+  if (!usedScorer) {
+    // Default: multiplicative penalties (exact current behavior)
+    score = 1.0;
+    for (const issue of issues) {
+      const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
+      issue.penalty = effectivePenalty;
+      score *= effectivePenalty;
+    }
+  } else {
+    // Still apply penalty overrides for metadata purposes when scorer was used
+    for (const issue of issues) {
+      issue.penalty = penalties?.[issue.analyzer] ?? issue.penalty;
+    }
   }
 
   // NaN guard — if any computation returned NaN, treat as unknown quality

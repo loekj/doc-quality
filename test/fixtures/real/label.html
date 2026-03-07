@@ -33,11 +33,21 @@
   .cat-btn { background: #2a2a2a; border: 1px solid #444; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; color: #ccc; user-select: none; transition: all 0.15s; }
   .cat-btn:hover { border-color: #888; }
   .cat-btn.active { background: #2a3a5a; border-color: #4a7dff; color: #8af; }
-  #issue-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  #issue-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
   .tag { background: #2a2a2a; border: 1px solid #444; padding: 4px 10px; border-radius: 14px; cursor: pointer; font-size: 12px; user-select: none; transition: all 0.15s; }
   .tag:hover { border-color: #888; }
   .tag.checked { background: #4a3a1a; border-color: #c90; color: #fc0; }
   .tag.auto { box-shadow: 0 0 0 1px #666 inset; }
+
+  #slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  #slider-row .slider-label { font-size: 12px; color: #999; white-space: nowrap; }
+  #score-slider { flex: 1; accent-color: #4a7dff; height: 6px; cursor: pointer; }
+  #slider-value { font-size: 14px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
+  #slider-value.pass { color: #6f6; }
+  #slider-value.fail { color: #f66; }
+  #slider-pass-indicator { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+  #slider-pass-indicator.pass { background: #1a4a1a; color: #6f6; }
+  #slider-pass-indicator.fail { background: #4a1a1a; color: #f66; }
 
   #action-row { display: flex; align-items: center; gap: 10px; }
   #notes { flex: 1; background: #222; border: 1px solid #444; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
@@ -105,6 +115,12 @@
       <button class="cat-btn" data-cat="photo">Photo <kbd>P</kbd></button>
     </div>
     <div id="issue-tags"></div>
+    <div id="slider-row">
+      <span class="slider-label">Score:</span>
+      <input type="range" id="score-slider" min="0" max="100" step="1" value="75">
+      <span id="slider-value">0.75</span>
+      <span id="slider-pass-indicator">PASS</span>
+    </div>
     <div id="action-row">
       <input id="notes" type="text" placeholder="Notes (optional)">
       <button class="action-btn very-bad" id="btn-very-bad">Very Bad <kbd>1</kbd></button>
@@ -163,6 +179,23 @@ const $issueTags = document.getElementById('issue-tags');
 const $notes = document.getElementById('notes');
 const $loading = document.getElementById('loading');
 const $catBtns = document.querySelectorAll('.cat-btn');
+const $scoreSlider = document.getElementById('score-slider');
+const $sliderValue = document.getElementById('slider-value');
+const $sliderPassInd = document.getElementById('slider-pass-indicator');
+
+// Quartile centers: VB=0–25, B=25–50, G=50–75, VG=75–100
+const TIER_SLIDER_DEFAULTS = { 'very-bad': 12, 'bad': 37, 'good': 62, 'very-good': 87 };
+
+function updateSliderDisplay() {
+  const val = $scoreSlider.valueAsNumber / 100;
+  $sliderValue.textContent = val.toFixed(2);
+  const pass = val >= 0.5;
+  $sliderValue.className = pass ? 'pass' : 'fail';
+  $sliderPassInd.textContent = pass ? 'PASS' : 'FAIL';
+  $sliderPassInd.className = pass ? 'pass' : 'fail';
+}
+
+$scoreSlider.addEventListener('input', updateSliderDisplay);
 
 // Init
 async function init() {
@@ -242,9 +275,19 @@ function showImage(idx) {
   if (img.label) {
     $notes.value = img.label.notes || '';
     for (const issue of (img.label.issues || [])) checkedIssues.add(issue);
+    // Restore slider: use saved score, or infer from tier label
+    if (img.label.score != null) {
+      $scoreSlider.value = Math.round(img.label.score * 100);
+    } else if (TIER_SLIDER_DEFAULTS[img.label.label] != null) {
+      $scoreSlider.value = TIER_SLIDER_DEFAULTS[img.label.label];
+    } else {
+      $scoreSlider.value = 75;
+    }
   } else {
     $notes.value = '';
+    $scoreSlider.value = 75;
   }
+  updateSliderDisplay();
 
   $scoreBadge.style.display = 'none';
 
@@ -282,9 +325,18 @@ async function saveLabel(label) {
   const img = filteredImages[currentIndex];
   if (!img) return;
 
+  // Auto-set slider to tier default when a tier button is clicked
+  if (TIER_SLIDER_DEFAULTS[label] != null) {
+    $scoreSlider.value = TIER_SLIDER_DEFAULTS[label];
+    updateSliderDisplay();
+  }
+
+  const score = $scoreSlider.valueAsNumber / 100;
+
   const body = {
     path: img.path,
     label,
+    score,
     category: currentCategory,
     issues: Array.from(checkedIssues),
     notes: $notes.value.trim(),
@@ -297,7 +349,7 @@ async function saveLabel(label) {
   });
 
   // Update local state
-  img.label = { label, category: currentCategory, issues: body.issues, notes: body.notes, timestamp: new Date().toISOString() };
+  img.label = { label, score, category: currentCategory, issues: body.issues, notes: body.notes, timestamp: new Date().toISOString() };
   // Also update in allImages
   const master = allImages.find(i => i.path === img.path);
   if (master) master.label = img.label;
@@ -360,6 +412,14 @@ document.addEventListener('keydown', (e) => {
     case 'r': setCategory('receipt'); break;
     case 'c': setCategory('card'); break;
     case 'p': setCategory('photo'); break;
+    case '+': case '=':
+      $scoreSlider.value = Math.min(100, $scoreSlider.valueAsNumber + 5);
+      updateSliderDisplay();
+      break;
+    case '-':
+      $scoreSlider.value = Math.max(0, $scoreSlider.valueAsNumber - 5);
+      updateSliderDisplay();
+      break;
   }
 });
 

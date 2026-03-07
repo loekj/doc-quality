@@ -132,6 +132,7 @@ const server = createServer(async (req, res) => {
       const labels = await loadLabels();
       labels[body.path] = {
         label: body.label,
+        score: body.score ?? null,
         category: body.category ?? null,
         issues: body.issues ?? [],
         notes: body.notes ?? '',
