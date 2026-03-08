@@ -539,7 +539,7 @@ const dryRun = flags['dry-run'];
 const ROOT = flags['base-dir'] ? flags['base-dir'] : BASE;
 
 const CATEGORIES = ['documents', 'receipts', 'cards', 'photos'];
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp']);
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.tiff', '.tif', '.webp', '.heic', '.heif']);
 
 let totalBad = 0;
 let totalVeryBad = 0;

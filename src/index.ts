@@ -121,6 +121,7 @@ export async function checkQuality(
           resolve({
             pass: true,
             score: 1,
+            confidence: 'high' as const,
             preset: preset === 'auto' ? 'document' : preset,
             issues: [],
             metadata: { width: 0, height: 0, megapixels: 0, fileSize: buffer.length },
@@ -268,6 +269,7 @@ async function checkPdf(
     return {
       pass: true,
       score: 1,
+      confidence: 'high' as const,
       preset: preset === 'auto' ? 'document' : preset,
       issues: [],
       metadata: { width: 0, height: 0, megapixels: 0, fileSize: buffer.length },
@@ -295,7 +297,8 @@ async function checkPdf(
   }
 
   // Multi-page — run with concurrency limit, aggregate
-  const concurrency = maxConcurrency && maxConcurrency > 0 ? maxConcurrency : rendered.length;
+  // Cap default concurrency at 4 to avoid excessive memory from parallel sharp pipelines
+  const concurrency = maxConcurrency && maxConcurrency > 0 ? maxConcurrency : Math.min(4, rendered.length);
   const total = rendered.length;
 
   const pageResults = await mapWithConcurrency(
@@ -327,9 +330,15 @@ async function checkPdf(
     ? await resolvePreset(rendered[worstPageIdx >= 0 ? worstPageIdx : 0].buffer, preset, useBoundary)
     : preset === 'auto' ? 'document' as const : preset as ConcretePreset;
 
+  const finalScore = Math.round(avgScore * 100) / 100;
+  const threshold = resolveThresholds(resolvedPreset, overrides).passThreshold;
+  const dist = Math.abs(finalScore - threshold);
+  const confidence: 'high' | 'medium' | 'low' = dist >= 0.2 ? 'high' : dist >= 0.1 ? 'medium' : 'low';
+
   return {
     pass: pageResults.every((pr) => pr.pass),
-    score: Math.round(avgScore * 100) / 100,
+    score: finalScore,
+    confidence,
     worstPageScore: Math.round(worstScore * 100) / 100,
     preset: resolvedPreset,
     issues: allIssues,

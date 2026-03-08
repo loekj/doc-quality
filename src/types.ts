@@ -170,6 +170,8 @@ export interface QualityResult {
   pass: boolean;
   /** Aggregate quality score 0–1. For multi-page PDFs: average across all pages. */
   score: number;
+  /** Confidence level: 'high' | 'medium' | 'low'. Low when score is in the ambiguous zone (0.35–0.65). */
+  confidence: 'high' | 'medium' | 'low';
   /** Preset used (resolved from 'auto' if applicable) */
   preset: Exclude<PresetName, 'auto'>;
   /** All issues found. For multi-page PDFs: issues from all pages (each tagged with `page`). */

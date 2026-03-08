@@ -372,9 +372,12 @@ export async function runPipeline(
   // NaN guard — if any computation returned NaN, treat as unknown quality
   if (!Number.isFinite(score)) score = 1.0;
 
+  const finalScore = Math.round(score * 100) / 100;
+
   return {
-    pass: score >= thresholds.passThreshold,
-    score: Math.round(score * 100) / 100,
+    pass: finalScore >= thresholds.passThreshold,
+    score: finalScore,
+    confidence: scoreConfidence(finalScore, thresholds.passThreshold),
     preset: resolvedPreset,
     issues,
     metadata: imageMetadata,
@@ -384,6 +387,14 @@ export async function runPipeline(
       analyzers: roundTimings(timings),
     },
   };
+}
+
+/** Compute confidence based on distance from the pass threshold */
+function scoreConfidence(score: number, threshold: number): 'high' | 'medium' | 'low' {
+  const dist = Math.abs(score - threshold);
+  if (dist >= 0.2) return 'high';
+  if (dist >= 0.1) return 'medium';
+  return 'low';
 }
 
 function push(issues: Issue[], issue: Issue | null): void {
