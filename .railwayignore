@@ -8,3 +8,4 @@ test/fixtures/real/documents
 test/fixtures/real/receipts
 test/fixtures/real/cards
 test/fixtures/real/photos
+*.zip
