@@ -577,6 +577,10 @@ npm install doc-quality
 
 All peer dependencies are optional. The preflight subpath (`doc-quality/preflight`) has zero native dependencies and works without sharp installed. The main entry point throws at runtime if sharp is not available.
 
+## Training Dataset
+
+The scoring model is trained on the [doc-quality-dataset](https://zenodo.org/records/18907841?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6Ijk0OTM1NzhjLTZjMDUtNDY2OC1iMzdjLTYxYzVjOGVkYmY3YiIsImRhdGEiOnt9LCJyYW5kb20iOiI0YjczMTdiYTAyZWZhZjA5ODYyMWY5NDQ5MDUwY2ZkYiJ9.1Fxp-V0ZsJTzv_h4dxS7wt-AlvN9SEaEjWKwpunSsHuBJTAnyTQOmlS93bcNyJRuS5Zmvv3vcXtl0_sAxRXEog) — 5,000+ labeled document, receipt, card, and photo images across quality tiers (very-good, good, bad, very-bad), including synthetically degraded variants.
+
 ## Supported Formats
 
 **Images:** JPEG, PNG, WebP, TIFF, GIF, AVIF, HEIF, SVG (via sharp)
