@@ -8,24 +8,15 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #111; color: #eee; height: 100vh; display: flex; flex-direction: column; }
   #top-bar { display: flex; align-items: center; padding: 8px 16px; gap: 12px; background: #1a1a1a; border-bottom: 1px solid #333; flex-shrink: 0; }
-  #top-bar .progress { font-size: 14px; color: #999; }
-  #top-bar .filters { display: flex; gap: 6px; margin-left: auto; }
-  #top-bar .filters button { background: #333; border: 1px solid #555; color: #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-  #top-bar .filters button.active { background: #4a7dff; color: #fff; border-color: #4a7dff; }
-  #top-bar .filters button:hover { background: #444; }
-  #top-bar .filters button.active:hover { background: #3a6dee; }
-  #export-btn { background: #2a5a2a; border: 1px solid #3a7a3a; color: #ccc; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-  #export-btn:hover { background: #3a7a3a; }
+  #top-bar .progress { font-size: 14px; color: #999; margin-left: auto; }
 
   #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   #image-area { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 12px; position: relative; }
   #image-area img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
   #image-info { position: absolute; top: 16px; left: 16px; background: rgba(0,0,0,0.75); padding: 6px 12px; border-radius: 4px; font-size: 13px; }
-  #score-badge { position: absolute; top: 16px; right: 16px; padding: 6px 14px; border-radius: 20px; font-size: 14px; font-weight: 600; }
-  #score-badge.pass { background: #1a4a1a; color: #6f6; }
-  #score-badge.fail { background: #4a1a1a; color: #f66; }
-  #score-badge.loading { background: #333; color: #999; }
-  #score-badge.no-analysis { background: #222; color: #666; }
+
+  #zoom-btn { position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.6); border: 1px solid #555; color: #ccc; width: 40px; height: 40px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+  #zoom-btn:hover { background: rgba(0,0,0,0.85); color: #fff; }
 
   #controls { flex-shrink: 0; padding: 12px 16px; background: #1a1a1a; border-top: 1px solid #333; }
   #category-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
@@ -37,7 +28,6 @@
   .tag { background: #2a2a2a; border: 1px solid #444; padding: 4px 10px; border-radius: 14px; cursor: pointer; font-size: 12px; user-select: none; transition: all 0.15s; }
   .tag:hover { border-color: #888; }
   .tag.checked { background: #4a3a1a; border-color: #c90; color: #fc0; }
-  .tag.auto { box-shadow: 0 0 0 1px #666 inset; }
 
   #slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
   #slider-row .slider-label { font-size: 12px; color: #999; white-space: nowrap; }
@@ -45,22 +35,16 @@
   #slider-value { font-size: 14px; font-weight: 600; min-width: 36px; text-align: center; font-variant-numeric: tabular-nums; }
   #slider-value.pass { color: #6f6; }
   #slider-value.fail { color: #f66; }
-  #slider-pass-indicator { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
-  #slider-pass-indicator.pass { background: #1a4a1a; color: #6f6; }
-  #slider-pass-indicator.fail { background: #4a1a1a; color: #f66; }
+  #slider-tier { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 600; white-space: nowrap; }
+  #slider-tier.very-good { background: #1a4a1a; color: #6f6; }
+  #slider-tier.good { background: #2a5a2a; color: #8d8; }
+  #slider-tier.bad { background: #4a3a1a; color: #fc0; }
+  #slider-tier.very-bad { background: #4a1a1a; color: #f66; }
 
   #action-row { display: flex; align-items: center; gap: 10px; }
   #notes { flex: 1; background: #222; border: 1px solid #444; color: #eee; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
   #notes:focus { outline: none; border-color: #4a7dff; }
   .action-btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .action-btn.very-good { background: #1a6a1a; color: #fff; }
-  .action-btn.very-good:hover { background: #2a8a2a; }
-  .action-btn.good { background: #2a7a2a; color: #fff; }
-  .action-btn.good:hover { background: #3a8a3a; }
-  .action-btn.bad { background: #b63; color: #fff; }
-  .action-btn.bad:hover { background: #c74; }
-  .action-btn.very-bad { background: #c33; color: #fff; }
-  .action-btn.very-bad:hover { background: #d44; }
   .action-btn.skip { background: #555; color: #fff; }
   .action-btn.skip:hover { background: #666; }
   #nav-row { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
@@ -68,7 +52,6 @@
   .nav-btn:hover { background: #444; }
 
   kbd { display: inline-block; background: #333; border: 1px solid #555; border-radius: 3px; padding: 1px 5px; font-size: 11px; color: #aaa; margin-left: 4px; }
-
   #loading { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 18px; color: #666; }
   .label-indicator { font-size: 12px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; }
   .label-indicator.very-good { background: #1a4a1a; color: #6f6; }
@@ -76,22 +59,23 @@
   .label-indicator.bad { background: #4a3a1a; color: #fc0; }
   .label-indicator.very-bad { background: #4a1a1a; color: #f66; }
   .label-indicator.skip { background: #333; color: #999; }
-  .label-indicator.pass { background: #1a4a1a; color: #6f6; }
-  .label-indicator.fail { background: #4a1a1a; color: #f66; }
+
+  /* Save flash */
+  #save-flash { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 8px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; opacity: 0; transition: opacity 0.15s; pointer-events: none; z-index: 50; }
+  #save-flash.show { opacity: 1; background: rgba(74, 125, 255, 0.9); color: #fff; }
+  #save-flash.error { opacity: 1; background: rgba(200, 50, 50, 0.9); color: #fff; }
 
   /* Fullscreen zoom overlay */
-  #zoom-overlay { display: none; position: fixed; inset: 0; z-index: 100; background: #000; touch-action: none; }
+  #zoom-overlay { display: none; position: fixed; inset: 0; z-index: 100; background: #000; touch-action: none; cursor: grab; }
+  #zoom-overlay.dragging { cursor: grabbing; }
   #zoom-overlay img { position: absolute; transform-origin: 0 0; }
-  #zoom-close { position: fixed; top: 12px; right: 12px; z-index: 101; background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #555; border-radius: 50%; width: 40px; height: 40px; font-size: 20px; cursor: pointer; display: none; }
+  #zoom-close { position: fixed; top: 12px; right: 12px; z-index: 101; background: rgba(0,0,0,0.7); color: #fff; border: 1px solid #555; border-radius: 50%; width: 40px; height: 40px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 
-  /* Mobile styles */
   @media (max-width: 768px) {
-    #top-bar { flex-wrap: wrap; padding: 6px 10px; gap: 6px; }
-    #top-bar .filters { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-left: 0; width: 100%; }
-    #top-bar .filters button { white-space: nowrap; padding: 6px 10px; font-size: 13px; }
-    #export-btn { padding: 8px 12px; font-size: 13px; }
-    #image-area { padding: 4px; cursor: zoom-in; }
-    #image-info { font-size: 11px; padding: 4px 8px; top: 8px; left: 8px; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #top-bar { padding: 6px 10px; gap: 6px; }
+    #image-area { padding: 4px; }
+    #image-info { font-size: 11px; padding: 4px 8px; top: 8px; left: 8px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #zoom-btn { top: 8px; right: 8px; }
     #controls { padding: 8px 10px; }
     #category-row { gap: 4px; margin-bottom: 6px; }
     .cat-btn { padding: 8px 10px; font-size: 13px; }
@@ -101,13 +85,12 @@
     #slider-row { gap: 6px; margin-bottom: 6px; }
     #score-slider { height: 20px; }
     #slider-value { font-size: 16px; }
-    #slider-pass-indicator { font-size: 13px; padding: 4px 10px; }
+    #slider-tier { font-size: 13px; padding: 4px 10px; }
     #action-row { flex-wrap: wrap; gap: 6px; }
     #notes { width: 100%; flex: none; font-size: 16px; padding: 10px; }
     .action-btn { flex: 1 1 auto; min-width: 0; padding: 14px 8px; font-size: 15px; text-align: center; }
     #nav-row { gap: 6px; margin-top: 6px; }
     .nav-btn { flex: 1; padding: 12px 16px; font-size: 15px; text-align: center; }
-    #zoom-close { display: block; }
   }
 </style>
 </head>
@@ -116,16 +99,6 @@
 <div id="top-bar">
   <strong>Label Tool</strong>
   <span class="progress" id="progress">Loading...</span>
-  <div class="filters">
-    <button class="active" data-filter="all">All</button>
-    <button data-filter="unlabeled">Unlabeled</button>
-    <button data-filter="very-good">Very Good</button>
-    <button data-filter="good">Good</button>
-    <button data-filter="bad">Bad</button>
-    <button data-filter="very-bad">Very Bad</button>
-    <button data-filter="conflicts">Conflicts</button>
-  </div>
-  <button id="export-btn">Export JSON</button>
 </div>
 
 <div id="main">
@@ -134,7 +107,12 @@
     <img id="preview" style="display:none" alt="">
     <iframe id="pdf-preview" style="display:none; width:100%; height:100%; border:none; border-radius:4px; background:#fff;"></iframe>
     <div id="image-info" style="display:none"></div>
-    <div id="score-badge" style="display:none"></div>
+    <button id="zoom-btn" style="display:none" title="Zoom (Z)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+      </svg>
+    </button>
   </div>
 
   <div id="controls" style="display:none">
@@ -145,19 +123,15 @@
       <button class="cat-btn" data-cat="card">Card <kbd>C</kbd></button>
       <button class="cat-btn" data-cat="photo">Photo <kbd>P</kbd></button>
     </div>
-    <div id="issue-tags"></div>
+    <div id="issue-tags" style="display:none"></div>
     <div id="slider-row">
-      <span class="slider-label">Score:</span>
-      <input type="range" id="score-slider" min="0" max="100" step="1" value="75">
-      <span id="slider-value">0.75</span>
-      <span id="slider-pass-indicator">PASS</span>
+      <span class="slider-label">Quality:</span>
+      <input type="range" id="score-slider" min="0" max="100" step="1" value="50">
+      <span id="slider-value">0.50</span>
+      <span id="slider-tier">bad</span>
     </div>
     <div id="action-row">
       <input id="notes" type="text" placeholder="Notes (optional)">
-      <button class="action-btn very-bad" id="btn-very-bad">Very Bad <kbd>1</kbd></button>
-      <button class="action-btn bad" id="btn-bad">Bad <kbd>2</kbd></button>
-      <button class="action-btn good" id="btn-good">Good <kbd>3</kbd></button>
-      <button class="action-btn very-good" id="btn-very-good">Very Good <kbd>4</kbd></button>
       <button class="action-btn skip" id="btn-skip">Skip <kbd>S</kbd></button>
     </div>
     <div id="nav-row">
@@ -167,6 +141,7 @@
   </div>
 </div>
 
+<div id="save-flash"></div>
 <div id="zoom-overlay"><img id="zoom-img" alt=""><button id="zoom-close">&times;</button></div>
 
 <script>
@@ -186,7 +161,6 @@ const ISSUE_MAP = {
   'Partial/cropped': ['partial'],
 };
 
-// Map directory category names to preset names
 const DIR_TO_PRESET = {
   documents: 'document',
   receipts: 'receipt',
@@ -195,18 +169,14 @@ const DIR_TO_PRESET = {
 };
 
 let allImages = [];
-let filteredImages = [];
 let currentIndex = 0;
-let currentFilter = 'all';
-let currentAnalysis = null;
 let currentCategory = 'document';
 let checkedIssues = new Set();
 
-// DOM refs
 const $progress = document.getElementById('progress');
 const $preview = document.getElementById('preview');
+const $pdfPreview = document.getElementById('pdf-preview');
 const $imageInfo = document.getElementById('image-info');
-const $scoreBadge = document.getElementById('score-badge');
 const $controls = document.getElementById('controls');
 const $issueTags = document.getElementById('issue-tags');
 const $notes = document.getElementById('notes');
@@ -214,152 +184,124 @@ const $loading = document.getElementById('loading');
 const $catBtns = document.querySelectorAll('.cat-btn');
 const $scoreSlider = document.getElementById('score-slider');
 const $sliderValue = document.getElementById('slider-value');
-const $sliderPassInd = document.getElementById('slider-pass-indicator');
+const $sliderTier = document.getElementById('slider-tier');
+const $zoomBtn = document.getElementById('zoom-btn');
 
-// Quartile centers: VB=0–25, B=25–50, G=50–75, VG=75–100
-const TIER_SLIDER_DEFAULTS = { 'very-bad': 12, 'bad': 37, 'good': 62, 'very-good': 87 };
-
-function updateSliderDisplay() {
-  const val = $scoreSlider.valueAsNumber / 100;
-  $sliderValue.textContent = val.toFixed(2);
-  const pass = val >= 0.5;
-  $sliderValue.className = pass ? 'pass' : 'fail';
-  $sliderPassInd.textContent = pass ? 'PASS' : 'FAIL';
-  $sliderPassInd.className = pass ? 'pass' : 'fail';
+function sliderToLabel(value) {
+  if (value < 25) return 'very-bad';
+  if (value < 50) return 'bad';
+  if (value < 75) return 'good';
+  return 'very-good';
 }
 
-$scoreSlider.addEventListener('input', () => {
-  updateSliderDisplay();
-  // Auto-save if image is already labeled
-  const img = filteredImages[currentIndex];
-  if (img && img.label) saveLabel(img.label.label, { advance: false });
+function updateSliderDisplay() {
+  const val = $scoreSlider.valueAsNumber;
+  $sliderValue.textContent = (val / 100).toFixed(2);
+  $sliderValue.className = val >= 50 ? 'pass' : 'fail';
+  const tier = sliderToLabel(val);
+  $sliderTier.textContent = tier;
+  $sliderTier.className = tier;
+}
+
+function flash(msg, isError) {
+  const $f = document.getElementById('save-flash');
+  $f.textContent = msg;
+  $f.className = isError ? 'error' : 'show';
+  clearTimeout(flash._t);
+  flash._t = setTimeout(() => { $f.className = ''; }, 500);
+}
+
+// Live display update while dragging
+$scoreSlider.addEventListener('input', updateSliderDisplay);
+
+// Save + advance on slider release
+let sliderDebounce = null;
+$scoreSlider.addEventListener('change', () => {
+  clearTimeout(sliderDebounce);
+  sliderDebounce = setTimeout(() => {
+    saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
+  }, 200);
 });
 
-// Init
 async function init() {
   const res = await fetch('/api/images');
   allImages = await res.json();
-  applyFilter();
-  if (filteredImages.length > 0) {
+  if (allImages.length > 0) {
     $loading.style.display = 'none';
     $preview.style.display = '';
     $imageInfo.style.display = '';
     $controls.style.display = '';
-    showImage(0);
+    $zoomBtn.style.display = '';
+    // Start at first unlabeled image
+    const first = allImages.findIndex(img => !img.label);
+    showImage(first >= 0 ? first : 0);
   } else {
     $loading.textContent = 'No images found';
   }
 }
 
-function applyFilter() {
-  if (currentFilter === 'all') {
-    filteredImages = allImages;
-  } else if (currentFilter === 'unlabeled') {
-    filteredImages = allImages.filter(img => !img.label);
-  } else if (['very-good', 'good', 'bad', 'very-bad'].includes(currentFilter)) {
-    filteredImages = allImages.filter(img => img.label && img.label.label === currentFilter);
-  } else if (currentFilter === 'conflicts') {
-    filteredImages = allImages.filter(img => {
-      if (!img.label || !img._analysis) return false;
-      const labelGood = img.label.label === 'very-good' || img.label.label === 'good';
-      return labelGood !== img._analysis.pass;
-    });
-  }
-  if (currentIndex >= filteredImages.length) currentIndex = Math.max(0, filteredImages.length - 1);
-  updateProgress();
-}
-
 function updateProgress() {
   const labeled = allImages.filter(i => i.label).length;
-  const counts = { 'very-good': 0, 'good': 0, 'bad': 0, 'very-bad': 0 };
-  for (const img of allImages) {
-    if (img.label && counts[img.label.label] !== undefined) counts[img.label.label]++;
-  }
-  const breakdown = `VG:${counts['very-good']} G:${counts['good']} B:${counts['bad']} VB:${counts['very-bad']}`;
-  $progress.textContent = `${labeled}/${allImages.length} labeled [${breakdown}] | showing ${filteredImages.length} (${currentFilter})`;
+  $progress.textContent = `${labeled}/${allImages.length} labeled | #${currentIndex + 1}`;
 }
 
-/** Infer the initial category for an image from its directory or saved label */
 function inferCategory(img) {
-  // Saved label takes precedence
   if (img.label && img.label.category) return img.label.category;
-  // Infer from directory path
-  const dirCat = img.category; // e.g. 'documents', 'receipts', 'cards', 'photos'
-  return DIR_TO_PRESET[dirCat] || 'document';
+  return DIR_TO_PRESET[img.category] || 'document';
 }
 
 function setCategory(cat) {
   currentCategory = cat;
-  $catBtns.forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.cat === cat);
-  });
+  $catBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.cat === cat));
 }
 
 function showImage(idx) {
-  if (idx < 0 || idx >= filteredImages.length) return;
+  if (idx < 0 || idx >= allImages.length) return;
   currentIndex = idx;
-  currentAnalysis = null;
   checkedIssues.clear();
 
-  const img = filteredImages[idx];
+  const img = allImages[idx];
   const isPdf = img.path.toLowerCase().endsWith('.pdf');
-  const $pdfPreview = document.getElementById('pdf-preview');
   const imgUrl = `/api/image/${encodeURIComponent(img.path)}`;
 
   if (isPdf) {
     $preview.style.display = 'none';
     $pdfPreview.style.display = '';
     $pdfPreview.src = imgUrl;
+    $zoomBtn.style.display = 'none';
   } else {
     $pdfPreview.style.display = 'none';
     $pdfPreview.src = '';
     $preview.style.display = '';
     $preview.src = imgUrl;
+    $zoomBtn.style.display = '';
   }
 
   $imageInfo.innerHTML = `<b>${img.path}</b>` +
-    (img.label ? `<span class="label-indicator ${img.label.label}">${img.label.label}</span>` : '');
+    (img.label ? `<span class="label-indicator ${img.label.label}">${img.label.label} (${(img.label.score ?? 0).toFixed(2)})</span>` : '');
 
-  // Set category
   setCategory(inferCategory(img));
 
-  // Restore existing label data
   if (img.label) {
     $notes.value = img.label.notes || '';
     for (const issue of (img.label.issues || [])) checkedIssues.add(issue);
-    // Restore slider: use saved score, or infer from tier label
-    if (img.label.score != null) {
-      $scoreSlider.value = Math.round(img.label.score * 100);
-    } else if (TIER_SLIDER_DEFAULTS[img.label.label] != null) {
-      $scoreSlider.value = TIER_SLIDER_DEFAULTS[img.label.label];
-    } else {
-      $scoreSlider.value = 50;
-    }
+    $scoreSlider.value = img.label.score != null ? Math.round(img.label.score * 100) : 50;
   } else {
     $notes.value = '';
     $scoreSlider.value = 50;
   }
   updateSliderDisplay();
-
-  $scoreBadge.style.display = 'none';
-
   renderTags();
   updateProgress();
 }
 
 function renderTags() {
-  const analyzerNames = currentAnalysis
-    ? new Set(currentAnalysis.issues.map(i => i.analyzer))
-    : new Set();
-
   $issueTags.innerHTML = '';
   for (const [uiLabel, analyzers] of Object.entries(ISSUE_MAP)) {
     const tag = document.createElement('span');
     tag.className = 'tag';
-    const isAuto = analyzers.some(a => analyzerNames.has(a));
     const isChecked = analyzers.some(a => checkedIssues.has(a));
     if (isChecked) tag.classList.add('checked');
-    if (isAuto) tag.classList.add('auto');
     tag.textContent = uiLabel;
     tag.addEventListener('click', () => {
       if (isChecked) {
@@ -368,26 +310,16 @@ function renderTags() {
         for (const a of analyzers) checkedIssues.add(a);
       }
       renderTags();
-      // Auto-save if already labeled
-      const img = filteredImages[currentIndex];
-      if (img && img.label) saveLabel(img.label.label, { advance: false });
     });
     $issueTags.appendChild(tag);
   }
 }
 
 async function saveLabel(label, { advance = true } = {}) {
-  const img = filteredImages[currentIndex];
+  const img = allImages[currentIndex];
   if (!img) return;
 
-  // Only auto-set slider for new labels (not re-labels)
-  if (!img.label && TIER_SLIDER_DEFAULTS[label] != null) {
-    $scoreSlider.value = TIER_SLIDER_DEFAULTS[label];
-    updateSliderDisplay();
-  }
-
   const score = $scoreSlider.valueAsNumber / 100;
-
   const body = {
     path: img.path,
     label,
@@ -397,127 +329,103 @@ async function saveLabel(label, { advance = true } = {}) {
     notes: $notes.value.trim(),
   };
 
-  await fetch('/api/label', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  // Update local state
-  img.label = { label, score, category: currentCategory, issues: body.issues, notes: body.notes, timestamp: new Date().toISOString() };
-  // Also update in allImages
-  const master = allImages.find(i => i.path === img.path);
-  if (master) master.label = img.label;
-
-  applyFilter();
-
-  if (advance) {
-    // Move to next
-    if (currentIndex < filteredImages.length - 1) {
-      showImage(currentIndex + 1);
-    } else if (filteredImages.length > 0) {
-      showImage(Math.min(currentIndex, filteredImages.length - 1));
+  try {
+    const resp = await fetch('/api/label', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      flash('Save failed! (' + resp.status + ')', true);
+      return;
     }
+  } catch (err) {
+    flash('Save failed! (network)', true);
+    return;
+  }
+
+  // Only update local state after confirmed server save
+  img.label = { label, score, category: currentCategory, issues: body.issues, notes: body.notes, timestamp: new Date().toISOString() };
+
+  flash(label + ' ' + score.toFixed(2));
+
+  if (advance && currentIndex < allImages.length - 1) {
+    showImage(currentIndex + 1);
   } else {
-    // Stay on current image — refresh display
     showImage(currentIndex);
   }
-  updateProgress();
 }
 
-// Button handlers — advance only for new labels, stay for re-labels
-function labelClick(tier) {
-  const img = filteredImages[currentIndex];
-  const isRelabel = img && img.label;
-  saveLabel(tier, { advance: !isRelabel });
-}
-document.getElementById('btn-very-bad').addEventListener('click', () => labelClick('very-bad'));
-document.getElementById('btn-bad').addEventListener('click', () => labelClick('bad'));
-document.getElementById('btn-good').addEventListener('click', () => labelClick('good'));
-document.getElementById('btn-very-good').addEventListener('click', () => labelClick('very-good'));
+// --- Event handlers ---
+
 document.getElementById('btn-skip').addEventListener('click', () => saveLabel('skip'));
 document.getElementById('btn-prev').addEventListener('click', () => showImage(currentIndex - 1));
 document.getElementById('btn-next').addEventListener('click', () => showImage(currentIndex + 1));
 
-// Category buttons — auto-save on change
 $catBtns.forEach(btn => {
   btn.addEventListener('click', () => {
     setCategory(btn.dataset.cat);
-    const img = filteredImages[currentIndex];
+    // Auto-save category change if already labeled
+    const img = allImages[currentIndex];
     if (img && img.label) saveLabel(img.label.label, { advance: false });
   });
 });
 
-// Auto-save notes on blur
 $notes.addEventListener('blur', () => {
-  const img = filteredImages[currentIndex];
+  const img = allImages[currentIndex];
   if (img && img.label) saveLabel(img.label.label, { advance: false });
 });
-
-// Filter buttons
-document.querySelectorAll('#top-bar .filters button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#top-bar .filters button').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentFilter = btn.dataset.filter;
-    applyFilter();
-    if (filteredImages.length > 0) showImage(0);
-  });
-});
-
-// Export
-document.getElementById('export-btn').addEventListener('click', () => {
-  window.open('/api/labels', '_blank');
-});
-
-// Auto-save helper for already-labeled images
-function autoSaveIfLabeled() {
-  const img = filteredImages[currentIndex];
-  if (img && img.label) saveLabel(img.label.label, { advance: false });
-}
 
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
-  // Don't intercept when typing in notes
   if (document.activeElement === $notes) return;
-
   switch (e.key.toLowerCase()) {
-    case '1': labelClick('very-bad'); break;
-    case '2': labelClick('bad'); break;
-    case '3': labelClick('good'); break;
-    case '4': labelClick('very-good'); break;
     case 's': saveLabel('skip'); break;
     case 'arrowleft': showImage(currentIndex - 1); break;
     case 'arrowright': showImage(currentIndex + 1); break;
-    case 'd': setCategory('document'); autoSaveIfLabeled(); break;
-    case 'r': setCategory('receipt'); autoSaveIfLabeled(); break;
-    case 'c': setCategory('card'); autoSaveIfLabeled(); break;
-    case 'p': setCategory('photo'); autoSaveIfLabeled(); break;
+    case 'd': setCategory('document'); break;
+    case 'r': setCategory('receipt'); break;
+    case 'c': setCategory('card'); break;
+    case 'p': setCategory('photo'); break;
+    case 'z': openZoom(); break;
+    case 'escape': closeZoom(); break;
     case '+': case '=':
       $scoreSlider.value = Math.min(100, $scoreSlider.valueAsNumber + 5);
       updateSliderDisplay();
-      autoSaveIfLabeled();
+      clearTimeout(sliderDebounce);
+      sliderDebounce = setTimeout(() => {
+        saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
+      }, 800);
       break;
     case '-':
       $scoreSlider.value = Math.max(0, $scoreSlider.valueAsNumber - 5);
       updateSliderDisplay();
-      autoSaveIfLabeled();
+      clearTimeout(sliderDebounce);
+      sliderDebounce = setTimeout(() => {
+        saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
+      }, 800);
+      break;
+    case 'enter':
+      e.preventDefault();
+      clearTimeout(sliderDebounce);
+      saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
       break;
   }
 });
 
-// --- Mobile: pinch-to-zoom overlay ---
+// --- Zoom overlay ---
 const $zoomOverlay = document.getElementById('zoom-overlay');
 const $zoomImg = document.getElementById('zoom-img');
 const $zoomClose = document.getElementById('zoom-close');
-let zoomScale = 1, zoomX = 0, zoomY = 0, lastDist = 0, lastCenter = null, isPanning = false, panStart = null;
+let zoomScale = 1, zoomX = 0, zoomY = 0;
 
 function openZoom() {
+  const img = allImages[currentIndex];
+  if (!img || img.path.toLowerCase().endsWith('.pdf')) return;
   $zoomImg.src = $preview.src;
   zoomScale = 1; zoomX = 0; zoomY = 0;
   $zoomOverlay.style.display = 'block';
   $zoomImg.onload = () => {
-    // Fit image to screen
     const sw = window.innerWidth, sh = window.innerHeight;
     const iw = $zoomImg.naturalWidth, ih = $zoomImg.naturalHeight;
     zoomScale = Math.min(sw / iw, sh / ih);
@@ -532,51 +440,47 @@ function applyZoomTransform() {
   $zoomImg.style.transform = `translate(${zoomX}px, ${zoomY}px) scale(${zoomScale})`;
 }
 
-function dist(t) { const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY; return Math.hypot(dx, dy); }
-function center(t) { return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 }; }
+$zoomBtn.addEventListener('click', openZoom);
+$preview.addEventListener('click', () => { if (window.innerWidth <= 768) openZoom(); });
+$zoomClose.addEventListener('click', closeZoom);
 
-$zoomOverlay.addEventListener('touchstart', (e) => {
-  if (e.touches.length === 2) {
-    lastDist = dist(e.touches);
-    lastCenter = center(e.touches);
-  } else if (e.touches.length === 1) {
-    isPanning = true;
-    panStart = { x: e.touches[0].clientX - zoomX, y: e.touches[0].clientY - zoomY };
-  }
-}, { passive: true });
-
-$zoomOverlay.addEventListener('touchmove', (e) => {
+// Desktop: scroll wheel zoom
+$zoomOverlay.addEventListener('wheel', (e) => {
   e.preventDefault();
-  if (e.touches.length === 2) {
-    const d = dist(e.touches), c = center(e.touches);
-    const factor = d / lastDist;
-    const newScale = Math.max(0.5, Math.min(10, zoomScale * factor));
-    // Zoom toward pinch center
-    zoomX = c.x - (c.x - zoomX) * (newScale / zoomScale);
-    zoomY = c.y - (c.y - zoomY) * (newScale / zoomScale);
-    zoomScale = newScale;
-    lastDist = d;
-    lastCenter = c;
-    applyZoomTransform();
-  } else if (e.touches.length === 1 && isPanning) {
-    zoomX = e.touches[0].clientX - panStart.x;
-    zoomY = e.touches[0].clientY - panStart.y;
-    applyZoomTransform();
-  }
+  const factor = e.deltaY < 0 ? 1.15 : 0.87;
+  const ns = Math.max(0.3, Math.min(15, zoomScale * factor));
+  zoomX = e.clientX - (e.clientX - zoomX) * (ns / zoomScale);
+  zoomY = e.clientY - (e.clientY - zoomY) * (ns / zoomScale);
+  zoomScale = ns;
+  applyZoomTransform();
 }, { passive: false });
 
-$zoomOverlay.addEventListener('touchend', (e) => {
-  if (e.touches.length < 2) { lastDist = 0; lastCenter = null; }
-  if (e.touches.length === 0) isPanning = false;
-}, { passive: true });
+// Desktop: mouse drag pan
+let isDragging = false, dragSX = 0, dragSY = 0;
+$zoomOverlay.addEventListener('mousedown', (e) => {
+  if (e.target === $zoomClose) return;
+  isDragging = true;
+  dragSX = e.clientX - zoomX;
+  dragSY = e.clientY - zoomY;
+  $zoomOverlay.classList.add('dragging');
+});
+window.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  zoomX = e.clientX - dragSX;
+  zoomY = e.clientY - dragSY;
+  applyZoomTransform();
+});
+window.addEventListener('mouseup', () => {
+  isDragging = false;
+  $zoomOverlay.classList.remove('dragging');
+});
 
-// Double-tap to reset zoom
-let lastTap = 0;
+// Desktop: double-click toggle fit / 1:1
+let lastClick = 0;
 $zoomOverlay.addEventListener('click', (e) => {
-  if (e.target === $zoomClose) { closeZoom(); return; }
+  if (e.target === $zoomClose) return;
   const now = Date.now();
-  if (now - lastTap < 300) {
-    // Double-tap: toggle between fit and 1:1
+  if (now - lastClick < 300) {
     const sw = window.innerWidth, sh = window.innerHeight;
     const iw = $zoomImg.naturalWidth, ih = $zoomImg.naturalHeight;
     const fitScale = Math.min(sw / iw, sh / ih);
@@ -589,17 +493,45 @@ $zoomOverlay.addEventListener('click', (e) => {
     }
     applyZoomTransform();
   }
-  lastTap = now;
+  lastClick = now;
 });
 
-$zoomClose.addEventListener('click', closeZoom);
+// Mobile: pinch-to-zoom + pan
+let lastDist = 0, lastCenter = null, isPanning = false, panStart = null;
+$zoomOverlay.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastDist = Math.hypot(dx, dy);
+    lastCenter = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+  } else if (e.touches.length === 1) {
+    isPanning = true;
+    panStart = { x: e.touches[0].clientX - zoomX, y: e.touches[0].clientY - zoomY };
+  }
+}, { passive: true });
+$zoomOverlay.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX, dy = e.touches[0].clientY - e.touches[1].clientY;
+    const d = Math.hypot(dx, dy);
+    const c = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+    const ns = Math.max(0.5, Math.min(10, zoomScale * (d / lastDist)));
+    zoomX = c.x - (c.x - zoomX) * (ns / zoomScale);
+    zoomY = c.y - (c.y - zoomY) * (ns / zoomScale);
+    zoomScale = ns;
+    lastDist = d; lastCenter = c;
+    applyZoomTransform();
+  } else if (e.touches.length === 1 && isPanning) {
+    zoomX = e.touches[0].clientX - panStart.x;
+    zoomY = e.touches[0].clientY - panStart.y;
+    applyZoomTransform();
+  }
+}, { passive: false });
+$zoomOverlay.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) { lastDist = 0; lastCenter = null; }
+  if (e.touches.length === 0) isPanning = false;
+}, { passive: true });
 
-// Tap image to zoom on mobile
-$preview.addEventListener('click', () => {
-  if (window.innerWidth <= 768) openZoom();
-});
-
-// --- Mobile: swipe nav on image area ---
+// Mobile: swipe nav on image area only (not controls)
 let swipeStartX = null;
 const $imageArea = document.getElementById('image-area');
 $imageArea.addEventListener('touchstart', (e) => {
@@ -614,6 +546,10 @@ $imageArea.addEventListener('touchend', (e) => {
     else showImage(currentIndex + 1);
   }
 }, { passive: true });
+
+// Prevent slider/controls touch from triggering swipe or interfering
+$controls.addEventListener('touchstart', (e) => { swipeStartX = null; }, { passive: true });
+$scoreSlider.addEventListener('touchstart', (e) => { e.stopPropagation(); }, { passive: true });
 
 init();
 </script>
