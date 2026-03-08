@@ -64,17 +64,23 @@ def evaluate(y_true, y_pred, threshold=0.5, name='model'):
     }, worst_idx
 
 
+MAX_TREE_DEPTH = 64
+
+
 def eval_xgb_trees(trees, base_score, features):
     """Evaluate our JSON tree format (mirrors src/tree-eval.ts)."""
     score = base_score
     for tree_group in trees:
         for tree in tree_group:
-            score += eval_tree(tree, features)
+            score += eval_tree(tree, features, depth=0)
     return max(0, min(1, score))
 
 
-def eval_tree(node, features):
+def eval_tree(node, features, depth=0):
     """Recursively evaluate a single tree node."""
+    if depth > MAX_TREE_DEPTH:
+        return 0.0
+
     if 'leaf' in node:
         return node['leaf']
 
@@ -83,12 +89,21 @@ def eval_tree(node, features):
     val = features[feat_idx] if feat_idx < len(features) else float('nan')
 
     if np.isnan(val):
-        return eval_tree(node['right'] if node.get('missing', 1) else node['left'], features)
+        child = node['right'] if node.get('missing', 1) else node['left']
+        return eval_tree(child, features, depth + 1)
     if val <= threshold:
-        return eval_tree(node['left'], features)
-    return eval_tree(node['right'], features)
+        return eval_tree(node['left'], features, depth + 1)
+    return eval_tree(node['right'], features, depth + 1)
 
 
+def load_feature_names(model_def):
+    """Read feature names from the model bundle if available, otherwise use defaults."""
+    if 'feature_names' in model_def:
+        return model_def['feature_names']
+    return None
+
+
+# Feature names — keep in sync with train-model.py and src/features.ts
 FAST_FEATURES = [
     'megapixels', 'width', 'height', 'aspectRatio', 'fileSize',
     'bpp', 'brightnessAvg', 'brightnessStdevMax',
@@ -147,7 +162,7 @@ def main():
 
     all_metrics = {}
 
-    for mode, feature_cols in [('fast', FAST_FEATURES), ('thorough', ALL_FEATURES)]:
+    for mode, default_features in [('fast', FAST_FEATURES), ('thorough', ALL_FEATURES)]:
         if mode not in bundle:
             continue
 
@@ -156,6 +171,15 @@ def main():
             continue
 
         model_def = bundle[mode]
+        # Prefer feature names from the model bundle (stays in sync with training)
+        feature_cols = load_feature_names(model_def) or default_features
+
+        missing_cols = [c for c in feature_cols if c not in mode_df.columns]
+        if missing_cols:
+            print(f"  Warning: {mode} model expects features not in CSV: {missing_cols}")
+            # Use only available columns
+            feature_cols = [c for c in feature_cols if c in mode_df.columns]
+
         X = mode_df[feature_cols].copy().replace([np.inf, -np.inf, ''], np.nan).astype(float)
         y_true = mode_df['label'].values
 

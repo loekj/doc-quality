@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -218,12 +217,28 @@ def main():
         df = pd.read_csv(csv_path)
         print(f"Loaded {len(df)} rows from {csv_path}")
 
+    # ── Validate required columns ──────────────────────────────────
+    required_cols = {'path', 'preset', 'mode', 'label'}
+    missing = required_cols - set(df.columns)
+    if missing:
+        print(f"CSV missing required columns: {missing}")
+        sys.exit(1)
+
+    missing_features = [f for f in ALL_FEATURES if f not in df.columns]
+    if missing_features:
+        print(f"Warning: {len(missing_features)} features missing from CSV: {missing_features[:5]}...")
+
     # ── Train/test split ──────────────────────────────────────────
     # Split by unique image path so the same image's fast+thorough rows
-    # stay together (no data leakage between train and test)
-    unique_paths = df['path'].unique()
+    # stay together (no data leakage between train and test).
+    # Stratify by tier bucket so the test set has representative coverage.
+    path_labels = df.groupby('path')['label'].first()
+    tier_bins = pd.cut(path_labels, bins=[0, 0.25, 0.5, 0.75, 1.01],
+                       labels=['very-bad', 'bad', 'good', 'very-good'])
+    unique_paths = path_labels.index.values
     train_paths, test_paths = train_test_split(
         unique_paths, test_size=args.test_size, random_state=args.seed,
+        stratify=tier_bins,
     )
     train_set = set(train_paths)
     test_set = set(test_paths)

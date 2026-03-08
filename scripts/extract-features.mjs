@@ -23,11 +23,13 @@ import { existsSync } from 'node:fs';
 const { checkQuality, extractFeatures, FEATURE_NAMES } = await import('../dist/index.js');
 
 // Quartile centers: VB=0–0.25, B=0.25–0.50, G=0.50–0.75, VG=0.75–1.00
+// 'unsorted' has no default — only images with explicit labels are included.
 const TIER_LABELS = {
   'very-good': 0.87,
   'good': 0.62,
   'bad': 0.37,
   'very-bad': 0.12,
+  'unsorted': null,
 };
 
 const PRESET_MAP = {
@@ -37,7 +39,7 @@ const PRESET_MAP = {
   photos: 'receipt',
 };
 
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.avif', '.heif']);
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.avif', '.heif', '.heic']);
 
 const args = process.argv.slice(2);
 const inputDir = getArg(args, '--input-dir') || 'test/fixtures/real';
@@ -108,6 +110,9 @@ async function main() {
           ? mainEntry.score
           : labels[filename] ?? defaultLabel;
 
+        // Skip unsorted images that have no explicit label
+        if (label == null) continue;
+
         try {
           const buffer = await readFile(imagePath);
 
@@ -153,7 +158,7 @@ async function main() {
     ['path', 'preset', 'mode', 'label', ...featureNames]
       .map(col => {
         const val = row[col];
-        if (typeof val === 'string') return `"${val}"`;
+        if (typeof val === 'string') return `"${val.replace(/"/g, '""')}"`;
         if (typeof val === 'number' && isNaN(val)) return '';
         return val;
       })
