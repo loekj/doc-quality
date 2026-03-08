@@ -1,0 +1,13 @@
+FROM node:22-slim
+WORKDIR /app
+
+# Copy only the label server and fixtures
+COPY test/fixtures/real/ ./test/fixtures/real/
+
+# Labels persist on a volume mounted at /data
+# Server will use LABELS_PATH env var if set
+ENV PORT=3847
+ENV LABELS_PATH=/data/labels.json
+
+EXPOSE 3847
+CMD ["node", "test/fixtures/real/label-server.mjs"]

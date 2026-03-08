@@ -27,7 +27,7 @@ export interface XGBModel {
   feature_names?: string[];
 }
 
-/** Model bundle — one model per preset × mode */
+/** Model bundle — one model per mode, preset is a feature */
 export interface ModelBundle {
   [key: string]: XGBModel;
 }
@@ -193,20 +193,14 @@ export function loadPreflightModel(json: string): PreflightScorerFn {
 
 function createScorer(bundle: ModelBundle): Scorer {
   const scorer = ((features: FeatureVector, _issues: Issue[]) => {
-    // Auto-select model: try preset-mode first, then preset, then fallback
-    // The preset and mode are encoded in the feature vector
-    // presetIdx is feature 14, mode is determined by whether thorough features are present
-    const presetIdx = features.values.length > 14 ? features.values[14] : 0;
-    const presetNames = ['document', 'receipt', 'card'];
-    const preset = presetNames[presetIdx] ?? 'document';
+    // One model per mode — preset is encoded as feature #14 (presetIdx)
     const isThorough = features.values.length > 15 && !isNaN(features.values[15]);
     const mode = isThorough ? 'thorough' : 'fast';
 
-    const key = `${preset}-${mode}`;
-    const model = bundle[key];
+    const model = bundle[mode];
     if (!model) {
-      // Fallback: try any model for this preset, then any model
-      const fallback = bundle[`${preset}-thorough`] ?? bundle[`${preset}-fast`]
+      // Fallback: try the other mode, then legacy preset-mode keys, then any model
+      const fallback = bundle[isThorough ? 'fast' : 'thorough']
         ?? Object.values(bundle)[0];
       if (!fallback) return 1.0; // No models at all — pass through
       return evaluateModel(fallback, features.values);
@@ -215,6 +209,6 @@ function createScorer(bundle: ModelBundle): Scorer {
     return evaluateModel(model, features.values);
   }) as Scorer;
 
-  scorer.getModel = (preset: string, mode: string) => bundle[`${preset}-${mode}`];
+  scorer.getModel = (_preset: string, mode: string) => bundle[mode];
   return scorer;
 }

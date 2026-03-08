@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+training
+models
+src
+test/fixtures/real/documents
+test/fixtures/real/receipts
+test/fixtures/real/cards
+test/fixtures/real/photos

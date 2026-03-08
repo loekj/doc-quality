@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// Catch crashes early
+process.on('uncaughtException', (err) => { console.error('UNCAUGHT:', err); process.exit(1); });
+process.on('unhandledRejection', (err) => { console.error('UNHANDLED REJECTION:', err); process.exit(1); });
+console.log('Starting label-server, PORT=' + process.env.PORT + ', LABELS_PATH=' + process.env.LABELS_PATH);
+
 /**
  * Labeling server — browser-based Tinder-style UI for rapidly
  * marking test fixtures as pass/fail.
@@ -12,8 +17,8 @@
  */
 
 import { createServer } from 'node:http';
-import { readdir, readFile, writeFile, stat, mkdtemp, unlink } from 'node:fs/promises';
-import { join, extname, relative } from 'node:path';
+import { readdir, readFile, writeFile, stat, mkdtemp, unlink, mkdir } from 'node:fs/promises';
+import { join, extname, relative, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
@@ -22,8 +27,9 @@ const execFileAsync = promisify(execFile);
 import { fileURLToPath } from 'node:url';
 
 const BASE = fileURLToPath(new URL('.', import.meta.url));
-const LABELS_PATH = join(BASE, 'labels.json');
-const PORT = 3847;
+const LABELS_PATH = process.env.LABELS_PATH || join(BASE, 'labels.json');
+const PORT = parseInt(process.env.PORT, 10) || 3847;
+const S3_BUCKET_URL = process.env.S3_BUCKET_URL || ''; // e.g. https://doc-quality-labeling.s3.amazonaws.com
 
 const CATEGORIES = ['documents', 'receipts', 'cards', 'photos'];
 const TIERS = ['very-good', 'good', 'bad', 'very-bad', 'unsorted'];
@@ -56,8 +62,16 @@ async function saveLabels(labels) {
   await writeFile(LABELS_PATH, JSON.stringify(labels, null, 2) + '\n');
 }
 
-/** Scan fixture directories and return image list */
+/** Scan fixture directories and return image list (or use manifest for S3 mode) */
 async function scanImages() {
+  // Use manifest.json if images aren't on disk (S3 mode)
+  const manifestPath = join(BASE, 'manifest.json');
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
+    if (manifest.length > 0) return manifest;
+  } catch {}
+
+  // Fall back to scanning directories
   const images = [];
   for (const category of CATEGORIES) {
     for (const tier of TIERS) {
@@ -144,9 +158,26 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // GET /api/image/:path — serve an image file
+    // GET /api/image/:path — serve an image file (from S3 or local disk)
     if (pathname.startsWith('/api/image/') && req.method === 'GET') {
       const imgPath = decodeURIComponent(pathname.slice('/api/image/'.length));
+
+      // Proxy from S3 if configured
+      if (S3_BUCKET_URL) {
+        const s3Url = `${S3_BUCKET_URL}/${imgPath}`;
+        const s3Res = await fetch(s3Url);
+        if (!s3Res.ok) {
+          res.writeHead(s3Res.status);
+          res.end(`S3 error: ${s3Res.status}`);
+          return;
+        }
+        const contentType = s3Res.headers.get('content-type') || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' });
+        const body = Buffer.from(await s3Res.arrayBuffer());
+        res.end(body);
+        return;
+      }
+
       const fullPath = join(BASE, imgPath);
       // Security: ensure path stays within BASE
       if (!fullPath.startsWith(BASE)) {
@@ -230,7 +261,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`Labeling server running at http://localhost:${PORT}`);
-  console.log(`Labels file: ${relative(process.cwd(), LABELS_PATH)}`);
+// Ensure labels directory exists (for volume mounts)
+try { await mkdir(dirname(LABELS_PATH), { recursive: true }); } catch {}
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Labeling server running on 0.0.0.0:${PORT}`);
+  console.log(`Labels file: ${LABELS_PATH}`);
 });
