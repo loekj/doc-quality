@@ -20,7 +20,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
 
@@ -89,10 +90,10 @@ def model_to_json(model, feature_names):
     }
 
 
-def train_model(df, feature_cols, label_col='label', name='model'):
-    """Train a single XGBoost model and return it with metrics."""
-    X = df[feature_cols].copy()
-    y = df[label_col]
+def train_model(train_df, feature_cols, label_col='label', name='model'):
+    """Train a single XGBoost model on the training set."""
+    X = train_df[feature_cols].copy()
+    y = train_df[label_col]
 
     # Replace empty strings and inf with NaN (XGBoost handles NaN natively)
     X = X.replace([np.inf, -np.inf, ''], np.nan).astype(float)
@@ -107,7 +108,7 @@ def train_model(df, feature_cols, label_col='label', name='model'):
         random_state=42,
     )
 
-    # Cross-validate
+    # Cross-validate on training set
     if len(X) >= 5:
         cv_folds = min(5, len(X))
         scores = cross_val_score(model, X, y, cv=cv_folds, scoring='r2')
@@ -115,7 +116,7 @@ def train_model(df, feature_cols, label_col='label', name='model'):
     else:
         print(f"  {name}: Too few samples for CV (n={len(X)}), training on all data")
 
-    # Train on all data
+    # Train on all training data
     model.fit(X, y)
 
     # Feature importance
@@ -130,10 +131,65 @@ def train_model(df, feature_cols, label_col='label', name='model'):
     return model
 
 
+def evaluate_model(model, test_df, feature_cols, label_col='label', name='model', threshold=0.5):
+    """Evaluate a trained model on the held-out test set."""
+    X = test_df[feature_cols].copy().replace([np.inf, -np.inf, ''], np.nan).astype(float)
+    y_true = test_df[label_col].values
+    y_pred = model.predict(X)
+
+    # Clamp predictions to [0, 1]
+    y_pred = np.clip(y_pred, 0, 1)
+
+    # Regression metrics
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+    r2 = r2_score(y_true, y_pred)
+
+    # Classification metrics (pass/fail at threshold)
+    true_pass = y_true >= threshold
+    pred_pass = y_pred >= threshold
+    accuracy = np.mean(true_pass == pred_pass)
+    # Confusion counts
+    tp = np.sum(true_pass & pred_pass)
+    tn = np.sum(~true_pass & ~pred_pass)
+    fp = np.sum(~true_pass & pred_pass)
+    fn = np.sum(true_pass & ~pred_pass)
+
+    # Per-tier accuracy (quartile buckets matching TIER_LABELS)
+    tier_bounds = [(0, 0.25, 'very-bad'), (0.25, 0.5, 'bad'), (0.5, 0.75, 'good'), (0.75, 1.01, 'very-good')]
+    tier_lines = []
+    for lo, hi, tier_name in tier_bounds:
+        mask = (y_true >= lo) & (y_true < hi)
+        if mask.sum() == 0:
+            continue
+        tier_mae = mean_absolute_error(y_true[mask], y_pred[mask])
+        tier_acc = np.mean((y_pred[mask] >= threshold) == (y_true[mask] >= threshold))
+        tier_lines.append(f'      {tier_name:>9}: MAE={tier_mae:.3f}  acc={tier_acc:.1%}  n={mask.sum()}')
+
+    print(f'\n  {name} test metrics (n={len(y_true)}):')
+    print(f'    R²={r2:.3f}  MAE={mae:.3f}  RMSE={rmse:.3f}')
+    print(f'    Pass/fail accuracy: {accuracy:.1%}  (TP={tp} TN={tn} FP={fp} FN={fn})')
+    if tier_lines:
+        print('    Per-tier:')
+        for line in tier_lines:
+            print(line)
+
+    return {
+        'r2': round(r2, 4),
+        'mae': round(mae, 4),
+        'rmse': round(rmse, 4),
+        'accuracy': round(float(accuracy), 4),
+        'confusion': {'tp': int(tp), 'tn': int(tn), 'fp': int(fp), 'fn': int(fn)},
+        'n_test': len(y_true),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description='Train doc-quality XGBoost models')
     parser.add_argument('--input-dir', default='training', help='Directory with CSV files')
     parser.add_argument('--output', default='models/quality-models.json', help='Output model bundle')
+    parser.add_argument('--test-size', type=float, default=0.15, help='Fraction held out for testing (default: 0.15)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for train/test split')
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -141,6 +197,7 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     bundle = {}
+    metrics = {}
 
     # Single unified CSV — preset is feature #14 (presetIdx), not a separate model
     csv_path = input_dir / 'features.csv'
@@ -161,33 +218,76 @@ def main():
         df = pd.read_csv(csv_path)
         print(f"Loaded {len(df)} rows from {csv_path}")
 
-    # One model per mode (fast/thorough) — preset is just a feature
-    fast_df = df[df['mode'] == 'fast']
-    if len(fast_df) > 0:
-        model = train_model(fast_df, FAST_FEATURES, name='fast')
-        bundle['fast'] = model_to_json(model, FAST_FEATURES)
+    # ── Train/test split ──────────────────────────────────────────
+    # Split by unique image path so the same image's fast+thorough rows
+    # stay together (no data leakage between train and test)
+    unique_paths = df['path'].unique()
+    train_paths, test_paths = train_test_split(
+        unique_paths, test_size=args.test_size, random_state=args.seed,
+    )
+    train_set = set(train_paths)
+    test_set = set(test_paths)
 
-    thorough_df = df[df['mode'] == 'thorough']
-    if len(thorough_df) > 0:
-        model = train_model(thorough_df, ALL_FEATURES, name='thorough')
+    train_df = df[df['path'].isin(train_set)].copy()
+    test_df = df[df['path'].isin(test_set)].copy()
+
+    print(f"\nSplit: {len(train_paths)} train images, {len(test_paths)} test images "
+          f"({len(train_df)} train rows, {len(test_df)} test rows)")
+
+    # Save test set paths for reproducibility
+    test_paths_file = input_dir / 'test-set.json'
+    with open(test_paths_file, 'w') as f:
+        json.dump(sorted(test_paths.tolist()), f, indent=2)
+    print(f"Test set paths saved to {test_paths_file}")
+
+    # ── Train models on training set only ─────────────────────────
+    fast_train = train_df[train_df['mode'] == 'fast']
+    fast_test = test_df[test_df['mode'] == 'fast']
+    if len(fast_train) > 0:
+        model = train_model(fast_train, FAST_FEATURES, name='fast')
+        bundle['fast'] = model_to_json(model, FAST_FEATURES)
+        if len(fast_test) > 0:
+            metrics['fast'] = evaluate_model(model, fast_test, FAST_FEATURES, name='fast')
+
+    thorough_train = train_df[train_df['mode'] == 'thorough']
+    thorough_test = test_df[test_df['mode'] == 'thorough']
+    if len(thorough_train) > 0:
+        model = train_model(thorough_train, ALL_FEATURES, name='thorough')
         bundle['thorough'] = model_to_json(model, ALL_FEATURES)
+        if len(thorough_test) > 0:
+            metrics['thorough'] = evaluate_model(model, thorough_test, ALL_FEATURES, name='thorough')
 
     # Preflight model (uses fast-mode rows with subset of features)
-    if len(fast_df) > 0:
-        available_cols = [c for c in PREFLIGHT_FEATURES if c in fast_df.columns]
+    if len(fast_train) > 0:
+        available_cols = [c for c in PREFLIGHT_FEATURES if c in fast_train.columns]
         if len(available_cols) >= 3:
-            model = train_model(fast_df, available_cols, name='preflight')
+            model = train_model(fast_train, available_cols, name='preflight')
             bundle['preflight'] = model_to_json(model, available_cols)
+            if len(fast_test) > 0:
+                metrics['preflight'] = evaluate_model(model, fast_test, available_cols, name='preflight')
 
     if not bundle:
         print("\nNo models trained! Ensure features.csv exists in the input directory.")
         sys.exit(1)
 
-    # Write bundle
+    # Write model bundle
     with open(output_path, 'w') as f:
         json.dump(bundle, f, indent=2)
     print(f"\nWrote {len(bundle)} models to {output_path}")
     print(f"Models: {', '.join(sorted(bundle.keys()))}")
+
+    # Write metrics report
+    metrics_path = output_path.parent / 'metrics.json'
+    metrics_report = {
+        'seed': args.seed,
+        'test_size': args.test_size,
+        'n_train_images': len(train_paths),
+        'n_test_images': len(test_paths),
+        'models': metrics,
+    }
+    with open(metrics_path, 'w') as f:
+        json.dump(metrics_report, f, indent=2)
+    print(f"Metrics written to {metrics_path}")
 
 
 if __name__ == '__main__':
