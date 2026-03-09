@@ -379,16 +379,23 @@ $notes.addEventListener('blur', () => {
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (document.activeElement === $notes) return;
-  switch (e.key.toLowerCase()) {
-    case 's': saveLabel('skip'); break;
-    case 'arrowleft': showImage(currentIndex - 1); break;
-    case 'arrowright': showImage(currentIndex + 1); break;
-    case 'd': setCategory('document'); break;
-    case 'r': setCategory('receipt'); break;
-    case 'c': setCategory('card'); break;
-    case 'p': setCategory('photo'); break;
-    case 'z': openZoom(); break;
-    case 'escape': closeZoom(); break;
+  switch (e.key) {
+    case '1': case '2': case '3': case '4': case '5':
+    case '6': case '7': case '8': case '9':
+      $scoreSlider.value = parseInt(e.key) * 10;
+      updateSliderDisplay();
+      clearTimeout(sliderDebounce);
+      saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
+      break;
+    case 's': case 'S': saveLabel('skip'); break;
+    case 'ArrowLeft': showImage(currentIndex - 1); break;
+    case 'ArrowRight': showImage(currentIndex + 1); break;
+    case 'd': case 'D': setCategory('document'); break;
+    case 'r': case 'R': setCategory('receipt'); break;
+    case 'c': case 'C': setCategory('card'); break;
+    case 'p': case 'P': setCategory('photo'); break;
+    case 'z': case 'Z': openZoom(); break;
+    case 'Escape': closeZoom(); break;
     case '+': case '=':
       $scoreSlider.value = Math.min(100, $scoreSlider.valueAsNumber + 5);
       updateSliderDisplay();
@@ -405,7 +412,7 @@ document.addEventListener('keydown', (e) => {
         saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
       }, 800);
       break;
-    case 'enter':
+    case 'Enter':
       e.preventDefault();
       clearTimeout(sliderDebounce);
       saveLabel(sliderToLabel($scoreSlider.valueAsNumber));

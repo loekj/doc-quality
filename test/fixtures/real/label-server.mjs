@@ -62,13 +62,25 @@ async function saveLabels(labels) {
   await writeFile(LABELS_PATH, JSON.stringify(labels, null, 2) + '\n');
 }
 
+/** Deterministic shuffle (Fisher-Yates with seeded PRNG) */
+function shuffleImages(images) {
+  const arr = [...images];
+  let seed = 12345;
+  for (let i = arr.length - 1; i > 0; i--) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const j = seed % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 /** Scan fixture directories and return image list (or use manifest for S3 mode) */
 async function scanImages() {
   // Use manifest.json if images aren't on disk (S3 mode)
   const manifestPath = join(BASE, 'manifest.json');
   try {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
-    if (manifest.length > 0) return manifest;
+    if (manifest.length > 0) return shuffleImages(manifest);
   } catch {}
 
   // Fall back to scanning directories
@@ -93,7 +105,7 @@ async function scanImages() {
       }
     }
   }
-  return images;
+  return shuffleImages(images);
 }
 
 /** Read request body as string */
