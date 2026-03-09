@@ -127,6 +127,8 @@ try {
   console.warn('Warning: dist/index.js not found — analysis endpoint disabled. Run `npm run build` first.');
 }
 
+let cachedImages = null;
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
@@ -142,7 +144,8 @@ const server = createServer(async (req, res) => {
 
     // GET /api/images — list all images with labels
     if (pathname === '/api/images' && req.method === 'GET') {
-      const [images, labels] = await Promise.all([scanImages(), loadLabels()]);
+      if (!cachedImages) cachedImages = await scanImages();
+      const [images, labels] = [cachedImages, await loadLabels()];
       const result = images.map((img) => ({
         ...img,
         label: labels[img.path] ?? null,
