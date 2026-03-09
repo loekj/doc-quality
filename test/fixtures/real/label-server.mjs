@@ -21,9 +21,9 @@ import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-let sharp;
-try { sharp = (await import('sharp')).default; } catch (e) {
-  console.warn('Warning: sharp not available — HEIC conversion disabled:', e.message);
+let heicConvert;
+try { heicConvert = (await import('heic-convert')).default; } catch (e) {
+  console.warn('Warning: heic-convert not available — HEIC conversion disabled:', e.message);
 }
 
 const BASE = fileURLToPath(new URL('.', import.meta.url));
@@ -207,8 +207,8 @@ const server = createServer(async (req, res) => {
       }
 
       // Convert HEIC/HEIF to JPEG for browser compatibility
-      if (isHeic && sharp) {
-        buf = await sharp(buf).jpeg().toBuffer();
+      if (isHeic && heicConvert) {
+        buf = Buffer.from(await heicConvert({ buffer: buf, format: 'JPEG', quality: 0.85 }));
         res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
         res.end(buf);
         return;

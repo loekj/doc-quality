@@ -1,9 +1,8 @@
 FROM node:22-slim
 WORKDIR /app
 
-# Install HEIC support + sharp
-RUN apt-get update && apt-get install -y --no-install-recommends libheif-dev && rm -rf /var/lib/apt/lists/*
-RUN npm init -y > /dev/null 2>&1 && npm install sharp
+# Install heic-convert for HEIC→JPEG conversion (pure JS, no native deps)
+RUN npm init -y > /dev/null 2>&1 && npm install heic-convert
 
 # Copy server code, HTML pages, and image manifest (images served from S3)
 COPY test/fixtures/real/label-server.mjs ./test/fixtures/real/label-server.mjs
