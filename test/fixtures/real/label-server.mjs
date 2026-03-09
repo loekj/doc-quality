@@ -22,8 +22,8 @@ import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 let sharp;
-try { sharp = (await import('sharp')).default; } catch {
-  console.warn('Warning: sharp not available — HEIC conversion disabled');
+try { sharp = (await import('sharp')).default; } catch (e) {
+  console.warn('Warning: sharp not available — HEIC conversion disabled:', e.message);
 }
 
 const BASE = fileURLToPath(new URL('.', import.meta.url));
