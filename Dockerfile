@@ -1,7 +1,8 @@
 FROM node:22-slim
 WORKDIR /app
 
-# Install sharp for HEIC→JPEG conversion
+# Install HEIC support + sharp
+RUN apt-get update && apt-get install -y --no-install-recommends libheif-dev && rm -rf /var/lib/apt/lists/*
 RUN npm init -y > /dev/null 2>&1 && npm install sharp
 
 # Copy server code, HTML pages, and image manifest (images served from S3)
