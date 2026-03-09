@@ -172,6 +172,7 @@ let allImages = [];
 let currentIndex = 0;
 let currentCategory = 'document';
 let checkedIssues = new Set();
+let history = []; // stack of previously viewed indices
 
 const $progress = document.getElementById('progress');
 const $preview = document.getElementById('preview');
@@ -232,9 +233,14 @@ async function init() {
     $imageInfo.style.display = '';
     $controls.style.display = '';
     $zoomBtn.style.display = '';
-    // Start at first unlabeled image
-    const first = allImages.findIndex(img => !img.label);
-    showImage(first >= 0 ? first : 0);
+    // Jump to hash index if provided (e.g. /#42), otherwise first unlabeled
+    const hashIdx = parseInt(location.hash.slice(1), 10);
+    if (!isNaN(hashIdx) && hashIdx >= 0 && hashIdx < allImages.length) {
+      showImage(hashIdx);
+    } else {
+      const first = allImages.findIndex(img => !img.label);
+      showImage(first >= 0 ? first : 0);
+    }
   } else {
     $loading.textContent = 'No images found';
   }
@@ -358,19 +364,26 @@ async function saveLabel(label, { advance = true } = {}) {
 
 /** Find and show the next unlabeled image (wraps around) */
 function showNextUnlabeled() {
+  history.push(currentIndex);
   for (let i = 1; i <= allImages.length; i++) {
     const idx = (currentIndex + i) % allImages.length;
     if (!allImages[idx].label) { showImage(idx); return; }
   }
-  // All labeled — stay put
   showImage(currentIndex);
   flash('All done!');
+}
+
+/** Go back to previously viewed image */
+function goBack() {
+  if (history.length > 0) {
+    showImage(history.pop());
+  }
 }
 
 // --- Event handlers ---
 
 document.getElementById('btn-skip').addEventListener('click', () => saveLabel('skip'));
-document.getElementById('btn-prev').addEventListener('click', () => showImage(currentIndex - 1));
+document.getElementById('btn-prev').addEventListener('click', goBack);
 document.getElementById('btn-next').addEventListener('click', () => showNextUnlabeled());
 
 $catBtns.forEach(btn => {
@@ -399,8 +412,8 @@ document.addEventListener('keydown', (e) => {
       saveLabel(sliderToLabel($scoreSlider.valueAsNumber));
       break;
     case 's': case 'S': saveLabel('skip'); break;
-    case 'ArrowLeft': showImage(currentIndex - 1); break;
-    case 'ArrowRight': showImage(currentIndex + 1); break;
+    case 'ArrowLeft': goBack(); break;
+    case 'ArrowRight': showNextUnlabeled(); break;
     case 'd': case 'D': setCategory('document'); break;
     case 'r': case 'R': setCategory('receipt'); break;
     case 'c': case 'C': setCategory('card'); break;

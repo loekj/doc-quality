@@ -142,6 +142,14 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // Serve review.html at /review
+    if (pathname === '/review' && req.method === 'GET') {
+      const html = await readFile(join(BASE, 'review.html'), 'utf-8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(html);
+      return;
+    }
+
     // GET /api/images — list all images with labels
     if (pathname === '/api/images' && req.method === 'GET') {
       if (!cachedImages) cachedImages = await scanImages();

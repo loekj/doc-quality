@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labels Review</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: #111; color: #eee; padding: 16px; }
+  #top { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  h1 { font-size: 16px; }
+  #stats { font-size: 13px; color: #999; }
+  #filter { background: #222; border: 1px solid #444; color: #eee; padding: 4px 8px; border-radius: 4px; font-size: 13px; }
+  a { color: #8af; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; padding: 4px 8px; border-bottom: 2px solid #333; color: #999; font-size: 11px; text-transform: uppercase; position: sticky; top: 0; background: #111; cursor: pointer; user-select: none; white-space: nowrap; }
+  th:hover { color: #fff; }
+  th .arrow { margin-left: 4px; font-size: 10px; }
+  td { padding: 3px 8px; border-bottom: 1px solid #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+  tr:hover { background: #1a1a2a; }
+  tr.clickable { cursor: pointer; }
+  .score { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .score.high { color: #6f6; }
+  .score.mid { color: #fc0; }
+  .score.low { color: #f66; }
+  .label-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .label-badge.very-good { background: #1a4a1a; color: #6f6; }
+  .label-badge.good { background: #2a5a2a; color: #8d8; }
+  .label-badge.bad { background: #4a3a1a; color: #fc0; }
+  .label-badge.very-bad { background: #4a1a1a; color: #f66; }
+  .label-badge.skip { background: #333; color: #999; }
+  .cat { color: #999; }
+  #loading { color: #666; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <h1>Labels Review</h1>
+  <span id="stats"></span>
+  <select id="filter">
+    <option value="all">All labeled</option>
+    <option value="very-good">Very Good</option>
+    <option value="good">Good</option>
+    <option value="bad">Bad</option>
+    <option value="very-bad">Very Bad</option>
+    <option value="skip">Skip</option>
+  </select>
+  <a href="/">Back to labeler</a>
+</div>
+
+<div id="loading">Loading...</div>
+<table id="tbl" style="display:none">
+  <thead>
+    <tr>
+      <th data-col="idx"># <span class="arrow"></span></th>
+      <th data-col="path">File <span class="arrow"></span></th>
+      <th data-col="category">Category <span class="arrow"></span></th>
+      <th data-col="score">Score <span class="arrow"></span></th>
+      <th data-col="label">Rating <span class="arrow"></span></th>
+      <th data-col="timestamp">Time <span class="arrow"></span></th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+
+<script>
+let rows = [];
+let sortCol = 'idx';
+let sortAsc = true;
+let filter = 'all';
+
+async function init() {
+  const res = await fetch('/api/images');
+  const images = await res.json();
+
+  rows = images
+    .map((img, i) => ({ idx: i, path: img.path, category: img.category, ...img.label }))
+    .filter(r => r.label);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('tbl').style.display = '';
+  updateStats();
+  render();
+}
+
+function updateStats() {
+  const filtered = applyFilter();
+  const counts = { 'very-good': 0, 'good': 0, 'bad': 0, 'very-bad': 0, 'skip': 0 };
+  for (const r of rows) counts[r.label] = (counts[r.label] || 0) + 1;
+  document.getElementById('stats').textContent =
+    `${rows.length} labeled | VG:${counts['very-good']} G:${counts['good']} B:${counts['bad']} VB:${counts['very-bad']} S:${counts['skip']} | showing ${filtered.length}`;
+}
+
+function applyFilter() {
+  if (filter === 'all') return rows;
+  return rows.filter(r => r.label === filter);
+}
+
+function render() {
+  const data = applyFilter().sort((a, b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (sortCol === 'score') { va = va ?? 0; vb = vb ?? 0; }
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb || '').toLowerCase(); }
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const $tbody = document.getElementById('tbody');
+  $tbody.innerHTML = data.map((r, i) => {
+    const sc = r.score ?? 0;
+    const scClass = sc >= 0.65 ? 'high' : sc >= 0.4 ? 'mid' : 'low';
+    const time = r.timestamp ? new Date(r.timestamp).toLocaleString() : '';
+    return `<tr class="clickable" data-idx="${r.idx}">
+      <td>${i + 1}</td>
+      <td title="${r.path}">${r.path}</td>
+      <td class="cat">${r.category || ''}</td>
+      <td class="score ${scClass}">${sc.toFixed(2)}</td>
+      <td><span class="label-badge ${r.label}">${r.label}</span></td>
+      <td style="color:#666">${time}</td>
+    </tr>`;
+  }).join('');
+
+  // Update sort arrows
+  document.querySelectorAll('th').forEach(th => {
+    const arrow = th.querySelector('.arrow');
+    arrow.textContent = th.dataset.col === sortCol ? (sortAsc ? '\u25B2' : '\u25BC') : '';
+  });
+}
+
+// Sort on header click
+document.querySelector('thead').addEventListener('click', (e) => {
+  const th = e.target.closest('th');
+  if (!th) return;
+  const col = th.dataset.col;
+  if (sortCol === col) { sortAsc = !sortAsc; }
+  else { sortCol = col; sortAsc = true; }
+  render();
+});
+
+// Click row to open in labeler
+document.getElementById('tbody').addEventListener('click', (e) => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const idx = tr.dataset.idx;
+  window.open(`/#${idx}`, '_blank');
+});
+
+// Filter
+document.getElementById('filter').addEventListener('change', (e) => {
+  filter = e.target.value;
+  updateStats();
+  render();
+});
+
+init();
+</script>
+</body>
+</html>
