@@ -1,8 +1,8 @@
 FROM node:22-slim
 WORKDIR /app
 
-# Install sharp for HEIC→JPEG conversion (prebuilt binary, no build tools needed)
-RUN npm init -y > /dev/null 2>&1 && npm install --save sharp && ls node_modules/sharp/lib/index.js
+# Install sharp for HEIC→JPEG conversion
+RUN npm init -y > /dev/null 2>&1 && npm install sharp
 
 # Copy only the label server and fixtures
 COPY test/fixtures/real/ ./test/fixtures/real/
@@ -10,6 +10,7 @@ COPY test/fixtures/real/ ./test/fixtures/real/
 # Labels persist on a volume mounted at /data
 ENV PORT=3847
 ENV LABELS_PATH=/data/labels.json
+ENV NODE_PATH=/app/node_modules
 
 EXPOSE 3847
 CMD ["node", "test/fixtures/real/label-server.mjs"]
