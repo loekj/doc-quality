@@ -17,14 +17,14 @@ console.log('Starting label-server, PORT=' + process.env.PORT + ', LABELS_PATH='
  */
 
 import { createServer } from 'node:http';
-import { readdir, readFile, writeFile, stat, mkdtemp, unlink, mkdir } from 'node:fs/promises';
-import { join, extname, relative, dirname } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { tmpdir } from 'node:os';
-
-const execFileAsync = promisify(execFile);
+import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+let sharp;
+try { sharp = (await import('sharp')).default; } catch {
+  console.warn('Warning: sharp not available — HEIC conversion disabled');
+}
 
 const BASE = fileURLToPath(new URL('.', import.meta.url));
 const LABELS_PATH = process.env.LABELS_PATH || join(BASE, 'labels.json');
@@ -176,52 +176,39 @@ const server = createServer(async (req, res) => {
     // GET /api/image/:path — serve an image file (from S3 or local disk)
     if (pathname.startsWith('/api/image/') && req.method === 'GET') {
       const imgPath = decodeURIComponent(pathname.slice('/api/image/'.length));
+      const ext = extname(imgPath).toLowerCase();
+      const isHeic = ext === '.heic' || ext === '.heif';
 
-      // Proxy from S3 if configured
+      let buf;
       if (S3_BUCKET_URL) {
-        const s3Url = `${S3_BUCKET_URL}/${imgPath}`;
-        const s3Res = await fetch(s3Url);
+        const s3Res = await fetch(`${S3_BUCKET_URL}/${imgPath}`);
         if (!s3Res.ok) {
           res.writeHead(s3Res.status);
           res.end(`S3 error: ${s3Res.status}`);
           return;
         }
-        const contentType = s3Res.headers.get('content-type') || 'application/octet-stream';
-        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' });
-        const body = Buffer.from(await s3Res.arrayBuffer());
-        res.end(body);
-        return;
+        buf = Buffer.from(await s3Res.arrayBuffer());
+      } else {
+        const fullPath = join(BASE, imgPath);
+        if (!fullPath.startsWith(BASE)) {
+          res.writeHead(403);
+          res.end('Forbidden');
+          return;
+        }
+        buf = await readFile(fullPath);
       }
-
-      const fullPath = join(BASE, imgPath);
-      // Security: ensure path stays within BASE
-      if (!fullPath.startsWith(BASE)) {
-        res.writeHead(403);
-        res.end('Forbidden');
-        return;
-      }
-      const ext = extname(fullPath).toLowerCase();
 
       // Convert HEIC/HEIF to JPEG for browser compatibility
-      if (ext === '.heic' || ext === '.heif') {
-        const tmpDir = await mkdtemp(join(tmpdir(), 'dq-'));
-        const tmpOut = join(tmpDir, 'converted.jpg');
-        try {
-          await execFileAsync('sips', ['-s', 'format', 'jpeg', fullPath, '--out', tmpOut]);
-          const data = await readFile(tmpOut);
-          res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-          res.end(data);
-        } finally {
-          await unlink(tmpOut).catch(() => {});
-          await unlink(tmpDir).catch(() => {});
-        }
+      if (isHeic && sharp) {
+        buf = await sharp(buf).jpeg().toBuffer();
+        res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
+        res.end(buf);
         return;
       }
 
       const mime = MIME[ext] ?? 'application/octet-stream';
-      const data = await readFile(fullPath);
-      res.writeHead(200, { 'Content-Type': mime });
-      res.end(data);
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=86400' });
+      res.end(buf);
       return;
     }
 
