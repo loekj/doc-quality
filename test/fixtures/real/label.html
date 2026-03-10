@@ -263,6 +263,34 @@ function setCategory(cat) {
 
 function showImage(idx) {
   if (idx < 0 || idx >= allImages.length) return;
+
+  // Flush any pending slider save for the image we're leaving
+  if (sliderDebounce && currentIndex !== idx) {
+    clearTimeout(sliderDebounce);
+    sliderDebounce = null;
+    const prevImg = allImages[currentIndex];
+    if (prevImg) {
+      const label = sliderToLabel($scoreSlider.valueAsNumber);
+      const score = $scoreSlider.valueAsNumber / 100;
+      const body = {
+        path: prevImg.path, label, score,
+        category: currentCategory,
+        issues: Array.from(checkedIssues),
+        notes: $notes.value.trim(),
+      };
+      fetch('/api/label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }).then(resp => {
+        if (resp.ok) {
+          prevImg.label = { ...body, timestamp: new Date().toISOString() };
+          updateProgress();
+        }
+      }).catch(() => {});
+    }
+  }
+
   currentIndex = idx;
   checkedIssues.clear();
 
