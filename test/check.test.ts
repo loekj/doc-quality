@@ -261,23 +261,23 @@ describe('createChecker', () => {
 
 describe('analyzeDpi', () => {
   it('flags low DPI from TIFF metadata', async () => {
-    // Create a TIFF with explicit low DPI (120 — below 150 threshold, not a camera default)
+    // Create a TIFF with DPI above the camera floor (200) but below threshold (300)
     const buffer = await sharp({
       create: { width: 800, height: 600, channels: 3, background: { r: 128, g: 128, b: 128 } },
     })
       .tiff()
-      .withMetadata({ density: 120 })
+      .withMetadata({ density: 220 })
       .toBuffer();
     const result = await checkQuality(buffer, {
-      thresholds: { dpiMin: 150 },
+      thresholds: { dpiMin: 300 },
     });
     const issue = result.issues.find((i) => i.analyzer === 'dpi');
     expect(issue).toBeDefined();
-    expect(issue!.value).toBe(120);
+    expect(issue!.value).toBe(220);
   });
 
-  it('skips camera-default DPI values (72, 96)', async () => {
-    for (const density of [72, 96]) {
+  it('skips camera/phone DPI values (72, 96, 150, 200)', async () => {
+    for (const density of [72, 96, 150, 200]) {
       const buffer = await sharp({
         create: { width: 800, height: 600, channels: 3, background: { r: 128, g: 128, b: 128 } },
       })
@@ -285,7 +285,7 @@ describe('analyzeDpi', () => {
         .withMetadata({ density })
         .toBuffer();
       const result = await checkQuality(buffer, {
-        thresholds: { dpiMin: 150 },
+        thresholds: { dpiMin: 300 },
       });
       const issue = result.issues.find((i) => i.analyzer === 'dpi');
       expect(issue).toBeUndefined();
@@ -457,5 +457,297 @@ describe('file path input', () => {
 
   it('throws on nonexistent path', async () => {
     await expect(checkQuality('/nonexistent/file.png')).rejects.toThrow();
+  });
+});
+
+// ── End-to-end integration: multiple simultaneous issues ────────
+
+describe('integration — multiple simultaneous issues', () => {
+  it('dark + low-res + blurry image triggers all three issues', async () => {
+    // 200×200 solid dark image → low-res, dark, blurry (no edges), blank
+    const buffer = await makeImage({
+      width: 200,
+      height: 200,
+      color: { r: 15, g: 15, b: 15 },
+    });
+    const result = await checkQuality(buffer);
+
+    expect(result.pass).toBe(false);
+    expect(result.issues.length).toBeGreaterThanOrEqual(3);
+
+    const analyzers = result.issues.map(i => i.analyzer);
+    expect(analyzers).toContain('resolution');
+    expect(analyzers).toContain('brightness');
+
+    // Score should be product of all penalties — much lower than any single penalty
+    expect(result.score).toBeLessThan(0.3);
+  });
+
+  it('score equals product of issue penalties (default scoring)', async () => {
+    const buffer = await makeImage({
+      width: 200,
+      height: 200,
+      color: { r: 20, g: 20, b: 20 },
+    });
+    const result = await checkQuality(buffer);
+
+    // Compute expected score manually
+    let expected = 1.0;
+    for (const issue of result.issues) {
+      expected *= issue.penalty;
+    }
+    expected = Math.round(expected * 100) / 100;
+
+    expect(result.score).toBe(expected);
+  });
+
+  it('thorough mode finds more issues than fast mode', async () => {
+    // Solid grey — triggers blank page + possible other issues in thorough
+    const buffer = await makeImage({
+      width: 800,
+      height: 600,
+      color: { r: 128, g: 128, b: 128 },
+    });
+    const fast = await checkQuality(buffer, { mode: 'fast' });
+    const thorough = await checkQuality(buffer, { mode: 'thorough' });
+
+    expect(thorough.issues.length).toBeGreaterThanOrEqual(fast.issues.length);
+    // Thorough has more timing keys
+    expect(Object.keys(thorough.timing.analyzers).length).toBeGreaterThan(
+      Object.keys(fast.timing.analyzers).length,
+    );
+  });
+
+  it('timing.totalMs is positive and covers all analyzers', async () => {
+    const buffer = await makeNoisyImage(800, 600);
+    const result = await checkQuality(buffer, { mode: 'thorough' });
+
+    expect(result.timing.totalMs).toBeGreaterThan(0);
+    // Sum of individual timings should not exceed total
+    const analyzerSum = Object.values(result.timing.analyzers).reduce((s, v) => s + (v ?? 0), 0);
+    expect(analyzerSum).toBeLessThanOrEqual(result.timing.totalMs + 1); // +1 for rounding
+  });
+
+  it('confidence reflects distance from threshold', async () => {
+    // Definitely failing image — score near 0, well below 0.5 threshold
+    const dark = await makeImage({ width: 200, height: 200, color: { r: 5, g: 5, b: 5 } });
+    const darkResult = await checkQuality(dark);
+    expect(darkResult.confidence).toBe('high');
+    expect(darkResult.pass).toBe(false);
+    expect(darkResult.score).toBeLessThan(0.3); // Far below threshold = high confidence
+
+    // Confidence is always one of three valid values
+    expect(['high', 'medium', 'low']).toContain(darkResult.confidence);
+  });
+
+  it('every issue has all required fields populated', async () => {
+    const buffer = await makeImage({
+      width: 200,
+      height: 200,
+      color: { r: 10, g: 10, b: 10 },
+    });
+    const result = await checkQuality(buffer, { mode: 'thorough' });
+
+    for (const issue of result.issues) {
+      expect(issue.analyzer).toBeTruthy();
+      expect(issue.code).toBeTruthy();
+      expect(issue.guidance.length).toBeGreaterThan(10);
+      expect(issue.message).toBeTruthy();
+      expect(typeof issue.value).toBe('number');
+      expect(typeof issue.threshold).toBe('number');
+      expect(issue.penalty).toBeGreaterThan(0);
+      expect(issue.penalty).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('metadata is correct for original image (not analysis resize)', async () => {
+    const buffer = await makeNoisyImage(3000, 2000);
+    const result = await checkQuality(buffer);
+
+    // Metadata reflects original dimensions, not resized
+    expect(result.metadata.width).toBe(3000);
+    expect(result.metadata.height).toBe(2000);
+    expect(result.metadata.megapixels).toBe(6);
+    expect(result.metadata.fileSize).toBe(buffer.length);
+  });
+});
+
+// ── Multi-page PDF tests ───────────────────────────────────────
+
+describe('checkQuality — multi-page PDF', () => {
+  /**
+   * Create a multi-page PDF. Each page can have a different colored background.
+   * Uses raw PDF syntax to avoid external dependencies.
+   */
+  function makeMultiPagePdf(pageColors: Array<{ r: number; g: number; b: number }>): Buffer {
+    const pages = pageColors.length;
+    // Build PDF objects
+    const objects: string[] = [];
+    const offsets: number[] = [];
+    let body = '';
+
+    // Object 1: Catalog
+    objects.push(`1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n`);
+
+    // Object 2: Pages — kids are objects 3, 5, 7, ... (odd numbers starting at 3)
+    const kids = pageColors.map((_, i) => `${3 + i * 2} 0 R`).join(' ');
+    objects.push(`2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pages} >>\nendobj\n`);
+
+    // For each page: page object + content stream
+    for (let i = 0; i < pages; i++) {
+      const pageObjNum = 3 + i * 2;
+      const contentObjNum = 4 + i * 2;
+      const { r, g, b } = pageColors[i];
+      const rr = (r / 255).toFixed(3);
+      const gg = (g / 255).toFixed(3);
+      const bb = (b / 255).toFixed(3);
+      const stream = `${rr} ${gg} ${bb} rg\n0 0 612 792 re f\n`;
+
+      objects.push(
+        `${pageObjNum} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]\n   /Contents ${contentObjNum} 0 R /Resources << >> >>\nendobj\n`,
+      );
+      objects.push(
+        `${contentObjNum} 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`,
+      );
+    }
+
+    // Build body with offsets
+    let pos = 0;
+    const header = '%PDF-1.0\n';
+    pos = header.length;
+    for (const obj of objects) {
+      offsets.push(pos);
+      body += obj;
+      pos = header.length + body.length;
+    }
+
+    // xref table
+    const xrefStart = pos;
+    const totalObjs = objects.length + 1; // +1 for the free object entry
+    let xref = `xref\n0 ${totalObjs}\n`;
+    xref += `0000000000 65535 f \n`;
+    for (const off of offsets) {
+      xref += `${String(off).padStart(10, '0')} 00000 n \n`;
+    }
+
+    const trailer = `trailer\n<< /Size ${totalObjs} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
+
+    return Buffer.from(header + body + xref + trailer);
+  }
+
+  it('multi-page PDF returns pageResults array', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 180, g: 180, b: 180 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    expect(result.pageResults).toBeDefined();
+    expect(result.pageResults!.length).toBe(2);
+    expect(result.pageResults![0].page).toBe(1);
+    expect(result.pageResults![1].page).toBe(2);
+  });
+
+  it('multi-page PDF: each page has its own score and issues', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 }, // light page
+      { r: 200, g: 200, b: 200 }, // light page
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    for (const pr of result.pageResults!) {
+      expect(pr).toHaveProperty('pass');
+      expect(pr).toHaveProperty('score');
+      expect(pr).toHaveProperty('issues');
+      expect(pr.score).toBeGreaterThanOrEqual(0);
+      expect(pr.score).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('multi-page PDF: overall score is average of pages', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 200, g: 200, b: 200 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    const avg = result.pageResults!.reduce((s, pr) => s + pr.score, 0) / result.pageResults!.length;
+    expect(result.score).toBe(Math.round(avg * 100) / 100);
+  });
+
+  it('multi-page PDF: worstPageScore is set', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 200, g: 200, b: 200 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    expect(result.worstPageScore).toBeDefined();
+    const min = Math.min(...result.pageResults!.map(pr => pr.score));
+    expect(result.worstPageScore).toBe(Math.round(min * 100) / 100);
+  });
+
+  it('multi-page PDF: issues tagged with page numbers', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 200, g: 200, b: 200 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    for (const issue of result.issues) {
+      expect(issue.page).toBeDefined();
+      expect([1, 2]).toContain(issue.page);
+    }
+  });
+
+  it('multi-page PDF: onPage callback fires for each page', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 180, g: 180, b: 180 },
+    ]);
+    const fired: number[] = [];
+    await checkQuality(pdf, {
+      pages: '1-2',
+      onPage: (page, total, pr) => {
+        fired.push(page);
+        expect(total).toBe(2);
+        expect(pr).toHaveProperty('score');
+      },
+    });
+    expect(fired.sort()).toEqual([1, 2]);
+  });
+
+  it('multi-page PDF: pass requires ALL pages to pass', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 200, g: 200, b: 200 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    // pass = every page passes
+    const allPass = result.pageResults!.every(pr => pr.pass);
+    expect(result.pass).toBe(allPass);
+  });
+
+  it('multi-page PDF: metadata.format is pdf', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 180, g: 180, b: 180 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2' });
+
+    expect(result.metadata.format).toBe('pdf');
+    expect(result.metadata.fileSize).toBe(pdf.length);
+  });
+
+  it('multi-page PDF: maxConcurrency > 1 works', async () => {
+    const pdf = makeMultiPagePdf([
+      { r: 200, g: 200, b: 200 },
+      { r: 180, g: 180, b: 180 },
+    ]);
+    const result = await checkQuality(pdf, { pages: '1-2', maxConcurrency: 2 });
+
+    expect(result.pageResults).toBeDefined();
+    expect(result.pageResults!.length).toBe(2);
   });
 });

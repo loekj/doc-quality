@@ -2,10 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { extractFeatures, FEATURE_NAMES } from '../src/features.js';
 import type { AnalysisContext } from '../src/types.js';
 
+/** Deterministic PRNG (mulberry32) — reproducible test data */
+function mulberry32(seed: number) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function makeCtx(overrides?: Partial<AnalysisContext>): AnalysisContext {
   const w = 1000;
   const h = 1500;
   const buf = Buffer.alloc(200_000);
+  const rng = mulberry32(42);
 
   // Create a realistic laplacian
   const lapData = Buffer.alloc(w * h);
@@ -13,7 +24,7 @@ function makeCtx(overrides?: Partial<AnalysisContext>): AnalysisContext {
   let lapSum = 0;
   let lapSumSq = 0;
   for (let i = 0; i < lapData.length; i++) {
-    const v = Math.floor(Math.random() * 50);
+    const v = Math.floor(rng() * 50);
     lapData[i] = v;
     lapSum += v;
     lapSumSq += v * v;
@@ -25,7 +36,7 @@ function makeCtx(overrides?: Partial<AnalysisContext>): AnalysisContext {
   // Create greyRaw
   const greyData = Buffer.alloc(w * h);
   for (let i = 0; i < greyData.length; i++) {
-    greyData[i] = 128 + Math.floor(Math.random() * 40);
+    greyData[i] = 128 + Math.floor(rng() * 40);
   }
 
   return {
@@ -70,7 +81,7 @@ describe('extractFeatures', () => {
     const vec = extractFeatures(ctx, 'fast', 'document');
     expect(vec.names).toEqual(FEATURE_NAMES);
     expect(vec.values.length).toBe(FEATURE_NAMES.length);
-    expect(vec.values.length).toBe(39);
+    expect(vec.values.length).toBe(42);
   });
 
   it('fast mode: thorough features (15-38) are NaN', () => {
@@ -82,8 +93,8 @@ describe('extractFeatures', () => {
       expect(Number.isFinite(vec.values[i])).toBe(true);
     }
 
-    // Thorough features (15-38) should all be NaN
-    for (let i = 15; i <= 38; i++) {
+    // Thorough features (15-41) should all be NaN
+    for (let i = 15; i <= 41; i++) {
       expect(Number.isNaN(vec.values[i])).toBe(true);
     }
   });

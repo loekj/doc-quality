@@ -226,13 +226,17 @@ export function analyzePerspectiveSharpness(ctx: AnalysisContext, t: Thresholds)
 
 // ── DPI (from metadata) ──────────────────────────────────────────
 
-/** Camera-default DPI values — meaningless metadata, not real scanner DPI */
-const CAMERA_DEFAULT_DPI = new Set([72, 96]);
+/**
+ * Camera/phone images embed low, meaningless DPI values (72, 96, 150, 200).
+ * Only scanner software sets DPI intentionally (typically 200+).
+ * Skip anything below this floor to avoid false positives on phone photos.
+ */
+const CAMERA_DPI_FLOOR = 200;
 
 export function analyzeDpi(ctx: AnalysisContext, t: Thresholds): Issue | null {
   const dpi = ctx.sharpMeta?.density;
   if (!dpi || dpi <= 0) return null; // No DPI metadata — skip
-  if (CAMERA_DEFAULT_DPI.has(dpi)) return null; // Camera default — skip
+  if (dpi <= CAMERA_DPI_FLOOR) return null; // Camera/phone default — skip
   if (dpi >= t.dpiMin) return null;
   return {
     analyzer: 'dpi',
@@ -356,7 +360,7 @@ export function analyzeSkew(ctx: AnalysisContext, t: Thresholds): Issue | null {
     for (let y = 0; y < height; y++) {
       for (let x = x0; x < x1; x++) {
         const v = data[y * width + x];
-        if (v > 30) {
+        if (v > t.laplacianEdgeThreshold) {
           weightedY += y * v;
           totalWeight += v;
         }
@@ -429,64 +433,6 @@ export function analyzeColorDepth(ctx: AnalysisContext, t: Thresholds): Issue | 
   };
 }
 
-// ── Moiré pattern detection (autocorrelation on laplacian rows) ──
-
-/** @deprecated Use analyzeFFTMoire instead */
-export function analyzeMoire(ctx: AnalysisContext, t: Thresholds): Issue | null {
-  if (!ctx.laplacian || ctx.laplacian.width < 60 || ctx.laplacian.height < 20) return null;
-
-  const { data, width, height } = ctx.laplacian;
-
-  // Sample up to 20 rows evenly spaced
-  const sampleRows = Math.min(20, height);
-  const rowStep = Math.max(1, Math.floor(height / sampleRows));
-
-  let maxCorrelation = 0;
-
-  for (let r = 0; r < sampleRows; r++) {
-    const y = r * rowStep;
-    if (y >= height) break;
-
-    const rowOffset = y * width;
-
-    // Compute row mean
-    let rowSum = 0;
-    for (let x = 0; x < width; x++) rowSum += data[rowOffset + x];
-    const rowMean = rowSum / width;
-
-    // Compute variance
-    let rowVar = 0;
-    for (let x = 0; x < width; x++) {
-      const d = data[rowOffset + x] - rowMean;
-      rowVar += d * d;
-    }
-    rowVar /= width;
-    if (rowVar < 1) continue; // Flat row — skip
-
-    // Autocorrelation at lags 4–50
-    for (let lag = 4; lag <= Math.min(50, Math.floor(width / 2)); lag++) {
-      let cov = 0;
-      const n = width - lag;
-      for (let x = 0; x < n; x++) {
-        cov += (data[rowOffset + x] - rowMean) * (data[rowOffset + x + lag] - rowMean);
-      }
-      const corr = cov / (n * rowVar);
-      if (corr > maxCorrelation) maxCorrelation = corr;
-    }
-  }
-
-  if (maxCorrelation <= t.moireCorrelationMax) return null;
-
-  return {
-    analyzer: 'moire',
-    code: 'moire-pattern',
-    guidance: ISSUE_GUIDANCE['moire-pattern'],
-    message: `Moiré pattern detected (correlation ${maxCorrelation.toFixed(2)}, max ${t.moireCorrelationMax})`,
-    value: maxCorrelation,
-    threshold: t.moireCorrelationMax,
-    penalty: 0.7,
-  };
-}
 
 // ── Perspective / angle — brightness uniformity ──────────────────
 
@@ -814,6 +760,368 @@ export function analyzeDirectionalBlur(ctx: AnalysisContext, t: Thresholds): Iss
     threshold: t.directionalBlurRatioMax,
     penalty: 0.65,
   };
+}
+
+// ── Text geometry (crumpled/folded document detection) ────────────
+
+/** Connected component info extracted from binarized image */
+interface CCComponent {
+  area: number;
+  /** Sum of x-coordinates of component pixels */
+  sumX: number;
+  /** Sum of y-coordinates of component pixels */
+  sumY: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  perimeter: number;
+}
+
+/** Find root of union-find with path compression */
+function ufFind(parent: Int32Array, i: number): number {
+  let r = i;
+  while (parent[r] !== r) r = parent[r];
+  // Path compression
+  while (parent[i] !== r) {
+    const next = parent[i];
+    parent[i] = r;
+    i = next;
+  }
+  return r;
+}
+
+/** Union two sets */
+function ufUnion(parent: Int32Array, rank: Uint8Array, a: number, b: number): void {
+  const ra = ufFind(parent, a);
+  const rb = ufFind(parent, b);
+  if (ra === rb) return;
+  if (rank[ra] < rank[rb]) {
+    parent[ra] = rb;
+  } else if (rank[ra] > rank[rb]) {
+    parent[rb] = ra;
+  } else {
+    parent[rb] = ra;
+    rank[ra]++;
+  }
+}
+
+/**
+ * Analyze text geometry to detect crumpled/folded documents.
+ * Uses connected component analysis on the binarized image to measure:
+ * 1. Baseline straightness — text lines should be straight
+ * 2. Character size consistency — same-font chars have consistent pixel areas
+ * 3. Shape distortion — characters should have consistent circularity
+ */
+export function analyzeTextGeometry(ctx: AnalysisContext, t: Thresholds): Issue[] {
+  const issues: Issue[] = [];
+
+  if (!ctx.greyRaw) return issues;
+  const { data, width, height } = ctx.greyRaw;
+
+  // Guard: minimum image size
+  if (width < 100 || height < 100) return issues;
+
+  const totalPixels = width * height;
+
+  // ── Binarize (dark=foreground) ────────────────────────────────
+  const binary = new Uint8Array(totalPixels);
+  for (let i = 0; i < totalPixels; i++) {
+    binary[i] = data[i] < t.binarizationThreshold ? 1 : 0;
+  }
+
+  // ── Connected component labeling (2-pass union-find, 8-connectivity) ──
+  const labels = new Int32Array(totalPixels);
+  labels.fill(-1);
+  const parent = new Int32Array(totalPixels);
+  const rank = new Uint8Array(totalPixels);
+  let nextLabel = 0;
+
+  // Bail out if we see too many labels — the image is noise, not a document.
+  // 50K isolated components is far beyond any real text document.
+  const MAX_LABELS = 50_000;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (binary[idx] === 0) continue;
+
+      // Check 8-connected neighbors (already visited: NW, N, NE, W)
+      const neighbors: number[] = [];
+      if (y > 0 && x > 0 && binary[(y - 1) * width + (x - 1)] === 1)
+        neighbors.push(labels[(y - 1) * width + (x - 1)]);
+      if (y > 0 && binary[(y - 1) * width + x] === 1)
+        neighbors.push(labels[(y - 1) * width + x]);
+      if (y > 0 && x < width - 1 && binary[(y - 1) * width + (x + 1)] === 1)
+        neighbors.push(labels[(y - 1) * width + (x + 1)]);
+      if (x > 0 && binary[y * width + (x - 1)] === 1)
+        neighbors.push(labels[y * width + (x - 1)]);
+
+      if (neighbors.length === 0) {
+        // New component
+        if (nextLabel >= MAX_LABELS) {
+          // Too many labels — noisy image, bail out
+          ctx.textGeometryMetrics = { baselineDeviation: 0, charSizeCV: 0, charShapeCV: 0 };
+          return issues;
+        }
+        const lbl = nextLabel++;
+        labels[idx] = lbl;
+        parent[lbl] = lbl;
+        rank[lbl] = 0;
+      } else {
+        // Find minimum root label among neighbors
+        let minRoot = ufFind(parent, neighbors[0]);
+        for (let i = 1; i < neighbors.length; i++) {
+          const root = ufFind(parent, neighbors[i]);
+          if (root < minRoot) minRoot = root;
+        }
+        labels[idx] = minRoot;
+        // Union all neighbor labels
+        for (const n of neighbors) {
+          ufUnion(parent, rank, minRoot, n);
+        }
+      }
+    }
+  }
+
+  // ── Second pass: resolve labels and collect component stats ──
+  const compMap = new Map<number, CCComponent>();
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (labels[idx] < 0) continue;
+
+      const root = ufFind(parent, labels[idx]);
+      labels[idx] = root;
+
+      let comp = compMap.get(root);
+      if (!comp) {
+        comp = {
+          area: 0,
+          sumX: 0,
+          sumY: 0,
+          minX: x,
+          maxX: x,
+          minY: y,
+          maxY: y,
+          perimeter: 0,
+        };
+        compMap.set(root, comp);
+      }
+
+      comp.area++;
+      comp.sumX += x;
+      comp.sumY += y;
+      if (x < comp.minX) comp.minX = x;
+      if (x > comp.maxX) comp.maxX = x;
+      if (y < comp.minY) comp.minY = y;
+      if (y > comp.maxY) comp.maxY = y;
+
+      // Perimeter: count boundary pixels (any 4-neighbor is background or edge)
+      const isEdge =
+        x === 0 || x === width - 1 || y === 0 || y === height - 1 ||
+        binary[(y - 1) * width + x] === 0 ||
+        binary[(y + 1) * width + x] === 0 ||
+        binary[y * width + (x - 1)] === 0 ||
+        binary[y * width + (x + 1)] === 0;
+      if (isEdge) comp.perimeter++;
+    }
+  }
+
+  // ── Filter to text-like components ───────────────────────────
+  const minArea = Math.max(totalPixels * 0.000001, 4); // 0.0001% of image, min 4px
+  const maxArea = totalPixels * 0.01;                   // 1%
+
+  const textComps: CCComponent[] = [];
+  for (const comp of compMap.values()) {
+    if (comp.area < minArea || comp.area > maxArea) continue;
+    const bw = comp.maxX - comp.minX + 1;
+    const bh = comp.maxY - comp.minY + 1;
+    const aspect = bw / (bh || 1);
+    if (aspect < 0.1 || aspect > 10) continue;
+    textComps.push(comp);
+  }
+
+  // Cap at 5000 components — beyond this the image is noisy, and sorting/CV
+  // computation would be slow for no benefit. Keep the largest 5000 by area
+  // (real characters tend to be larger than noise speckles).
+  if (textComps.length > 5000) {
+    textComps.sort((a, b) => b.area - a.area);
+    textComps.length = 5000;
+  }
+
+  // Guard: need enough components for statistics
+  if (textComps.length < 20) {
+    // Store zero metrics so feature extraction doesn't recompute
+    ctx.textGeometryMetrics = { baselineDeviation: 0, charSizeCV: 0, charShapeCV: 0 };
+    return issues;
+  }
+
+  // ── Dominant size clustering ─────────────────────────────────
+  // Histogram on log2(area), find mode bin, include components within 2x of mode
+  const logAreas = textComps.map(c => Math.log2(c.area));
+  let minLog = Infinity, maxLog = -Infinity;
+  for (let i = 0; i < logAreas.length; i++) {
+    if (logAreas[i] < minLog) minLog = logAreas[i];
+    if (logAreas[i] > maxLog) maxLog = logAreas[i];
+  }
+  const logRange = maxLog - minLog;
+
+  let dominantComps: CCComponent[];
+  if (logRange < 0.01) {
+    // All areas essentially identical — use all components
+    dominantComps = textComps;
+  } else {
+    const numBins = Math.max(1, Math.ceil(logRange));
+    const binSize = logRange / numBins;
+
+    const bins = new Int32Array(numBins + 1);
+    for (const la of logAreas) {
+      const bin = Math.min(Math.floor((la - minLog) / binSize), numBins);
+      bins[bin]++;
+    }
+
+    let modeBin = 0;
+    for (let i = 1; i <= numBins; i++) {
+      if (bins[i] > bins[modeBin]) modeBin = i;
+    }
+
+    const modeLogArea = minLog + (modeBin + 0.5) * binSize;
+    const modeArea = Math.pow(2, modeLogArea);
+
+    // Include components within 2x of mode area
+    dominantComps = textComps.filter(c =>
+      c.area >= modeArea / 2 && c.area <= modeArea * 2,
+    );
+  }
+
+  if (dominantComps.length < 20) {
+    ctx.textGeometryMetrics = { baselineDeviation: 0, charSizeCV: 0, charShapeCV: 0 };
+    return issues;
+  }
+
+  // ── Signal 1: Baseline straightness ──────────────────────────
+  // Cluster components into rows by centroid Y, fit lines, measure residuals
+  const centroids = dominantComps.map(c => ({
+    cx: c.sumX / c.area,
+    cy: c.sumY / c.area,
+    comp: c,
+  }));
+  centroids.sort((a, b) => a.cy - b.cy);
+
+  // Cluster into rows: components within rowGap of each other are same row
+  // Use median area of dominant components for row gap estimation
+  const sortedAreas = dominantComps.map(c => c.area).sort((a, b) => a - b);
+  const medianArea = sortedAreas[sortedAreas.length >>> 1];
+  const avgCharH = Math.sqrt(medianArea); // approximate character height
+  const rowGap = Math.max(avgCharH * 1.5, 1); // floor of 1px prevents degenerate clustering
+
+  const rows: Array<Array<{ cx: number; cy: number }>> = [];
+  let currentRow: Array<{ cx: number; cy: number }> = [centroids[0]];
+
+  for (let i = 1; i < centroids.length; i++) {
+    if (centroids[i].cy - centroids[i - 1].cy > rowGap) {
+      rows.push(currentRow);
+      currentRow = [centroids[i]];
+    } else {
+      currentRow.push(centroids[i]);
+    }
+  }
+  rows.push(currentRow);
+
+  // For each row with 5+ components, fit least-squares line, measure residual
+  let totalResidual = 0;
+  let rowCount = 0;
+
+  for (const row of rows) {
+    if (row.length < 5) continue;
+    const n = row.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (const p of row) {
+      sumX += p.cx;
+      sumY += p.cy;
+      sumXY += p.cx * p.cy;
+      sumXX += p.cx * p.cx;
+    }
+    const denom = n * sumXX - sumX * sumX;
+    if (Math.abs(denom) < 1e-10) continue;
+
+    const slope = (n * sumXY - sumX * sumY) / denom;
+    const intercept = (sumY - slope * sumX) / n;
+
+    // RMS residual
+    let sumResidSq = 0;
+    for (const p of row) {
+      const predicted = slope * p.cx + intercept;
+      const resid = p.cy - predicted;
+      sumResidSq += resid * resid;
+    }
+    totalResidual += Math.sqrt(sumResidSq / n);
+    rowCount++;
+  }
+
+  const baselineDeviation = rowCount > 0 ? (totalResidual / rowCount) / height : 0;
+
+  // ── Signal 2: Character size consistency ─────────────────────
+  const areas = dominantComps.map(c => c.area);
+  const meanArea = areas.reduce((s, a) => s + a, 0) / areas.length;
+  const areaVariance = areas.reduce((s, a) => s + (a - meanArea) ** 2, 0) / areas.length;
+  const charSizeCV = meanArea > 0 ? Math.sqrt(areaVariance) / meanArea : 0;
+
+  // ── Signal 3: Shape distortion (circularity) ─────────────────
+  const circularities = dominantComps
+    .filter(c => c.perimeter > 0)
+    .map(c => (4 * Math.PI * c.area) / (c.perimeter * c.perimeter));
+
+  let charShapeCV = 0;
+  if (circularities.length >= 20) {
+    const meanCirc = circularities.reduce((s, v) => s + v, 0) / circularities.length;
+    const circVar = circularities.reduce((s, v) => s + (v - meanCirc) ** 2, 0) / circularities.length;
+    charShapeCV = meanCirc > 0 ? Math.sqrt(circVar) / meanCirc : 0;
+  }
+
+  // Store metrics for feature extraction
+  ctx.textGeometryMetrics = { baselineDeviation, charSizeCV, charShapeCV };
+
+  // ── Emit issues ──────────────────────────────────────────────
+  if (baselineDeviation > t.baselineDeviationMax) {
+    issues.push({
+      analyzer: 'textGeometry',
+      code: 'wavy-text-lines',
+      guidance: ISSUE_GUIDANCE['wavy-text-lines'],
+      message: `Wavy text baselines (deviation ${(baselineDeviation * 100).toFixed(2)}% of height, max ${(t.baselineDeviationMax * 100).toFixed(2)}%)`,
+      value: baselineDeviation,
+      threshold: t.baselineDeviationMax,
+      penalty: 0.6,
+    });
+  }
+
+  if (charSizeCV > t.charSizeCVMax) {
+    issues.push({
+      analyzer: 'textGeometry',
+      code: 'inconsistent-char-size',
+      guidance: ISSUE_GUIDANCE['inconsistent-char-size'],
+      message: `Inconsistent character sizes (CV ${charSizeCV.toFixed(2)}, max ${t.charSizeCVMax})`,
+      value: charSizeCV,
+      threshold: t.charSizeCVMax,
+      penalty: 0.7,
+    });
+  }
+
+  if (charShapeCV > t.charShapeCVMax) {
+    issues.push({
+      analyzer: 'textGeometry',
+      code: 'distorted-char-shapes',
+      guidance: ISSUE_GUIDANCE['distorted-char-shapes'],
+      message: `Distorted character shapes (circularity CV ${charShapeCV.toFixed(2)}, max ${t.charShapeCVMax})`,
+      value: charShapeCV,
+      threshold: t.charShapeCVMax,
+      penalty: 0.65,
+    });
+  }
+
+  return issues;
 }
 
 export function analyzeFFTJpegArtifact(ctx: AnalysisContext, t: Thresholds): Issue | null {

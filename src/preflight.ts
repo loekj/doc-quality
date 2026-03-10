@@ -40,6 +40,8 @@ export interface PreflightThresholds {
   blankStdevMax: number;   // max channel stdev
   edgeDensityMin: number;  // ratio of edge pixels
   contrastFgMin: number;   // foreground ratio after binarization
+  laplacianEdgeThreshold: number; // magnitude threshold for counting edge pixels
+  binarizationThreshold: number;  // greyscale threshold for text binarization
 }
 
 /**
@@ -62,6 +64,8 @@ export const PREFLIGHT_DEFAULTS: PreflightThresholds = {
   blankStdevMax: 1.7,           // Full: 2.0   → 15% margin
   edgeDensityMin: 0.005,        // Full: 0.015 → wider margin: 200px thumbnail loses fine edges
   contrastFgMin: 0.008,         // Full: 0.01  → 20% margin
+  laplacianEdgeThreshold: 30,   // Same as backend — magnitude threshold for edge pixels
+  binarizationThreshold: 128,   // Same as backend — greyscale binarization cutoff
 };
 
 // ── Canvas helpers ───────────────────────────────────────────────
@@ -244,7 +248,7 @@ export async function preflight(
           lapSum += v;
           lapSum2 += v * v;
           lapCount++;
-          if (v > 30) edgePixels++;
+          if (v > t.laplacianEdgeThreshold) edgePixels++;
         }
       }
 
@@ -263,10 +267,10 @@ export async function preflight(
         }
       }
 
-      // ── Contrast — binarize at 128, count dark pixels ──
+      // ── Contrast — binarize at threshold, count dark pixels ──
       let darkPixels = 0;
       for (let i = 0; i < pixelCount; i++) {
-        if (grey[i] < 128) darkPixels++;
+        if (grey[i] < t.binarizationThreshold) darkPixels++;
       }
       foregroundRatio = darkPixels / pixelCount;
       if (foregroundRatio < t.contrastFgMin) {

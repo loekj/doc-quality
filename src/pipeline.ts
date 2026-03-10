@@ -39,6 +39,7 @@ import {
   analyzeDarkShadow,
   analyzeZoneQuality,
   analyzeDirectionalBlur,
+  analyzeTextGeometry,
 } from './analyzers.js';
 import { computeSpectrum2D } from './fft-core.js';
 import { runRegisteredFFTAnalyzers, hasFFTAnalyzers } from './fft.js';
@@ -169,7 +170,7 @@ export async function runPipeline(
     const v = lapData[i];
     lapSum += v;
     lapSumSq += v * v;
-    if (v > 30) edgeCount++;
+    if (v > thresholds.laplacianEdgeThreshold) edgeCount++;
   }
   const lapMean = lapSum / lapLen;
   const lapVariance = lapSumSq / lapLen - lapMean * lapMean;
@@ -212,7 +213,7 @@ export async function runPipeline(
     t = performance.now();
     const binarized = await sharp(analysisBuffer)
       .greyscale()
-      .threshold(128)
+      .threshold(thresholds.binarizationThreshold)
       .raw()
       .toBuffer({ resolveWithObject: true });
     const binData = binarized.data;
@@ -257,6 +258,11 @@ export async function runPipeline(
     push(issues, analyzeZoneQuality(ctx, thresholds));
     timings.zoneQuality = performance.now() - t;
 
+    // Text geometry (crumpled/folded detection — reuses greyRaw)
+    t = performance.now();
+    for (const issue of analyzeTextGeometry(ctx, thresholds)) issues.push(issue);
+    timings.textGeometry = performance.now() - t;
+
     // Skew detection (reuses laplacian)
     t = performance.now();
     push(issues, analyzeSkew(ctx, thresholds));
@@ -298,11 +304,7 @@ export async function runPipeline(
       t = performance.now();
       const fftIssues = await runRegisteredFFTAnalyzers(ctx, thresholds);
       for (const issue of fftIssues) issues.push(issue);
-      const fftTime = performance.now() - t;
-      if (fftIssues.some((i) => i.analyzer === 'fftBlur'))
-        timings.fftBlur = fftTime;
-      if (fftIssues.some((i) => i.analyzer === 'fftNoise'))
-        timings.fftNoise = fftTime;
+      // Don't overwrite built-in FFT timing — registered analyzers are additive
     }
   }
 

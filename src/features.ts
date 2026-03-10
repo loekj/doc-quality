@@ -1,5 +1,6 @@
 import type { AnalysisContext, Mode } from './types.js';
 import type { ConcretePreset } from './defaults.js';
+import { DEFAULT_THRESHOLDS } from './defaults.js';
 import { highFreqEnergyRatio, countSpectralPeaks, jpegBlockiness } from './fft-core.js';
 
 export interface FeatureVector {
@@ -13,7 +14,7 @@ export const FEATURE_NAMES: readonly string[] = [
   'bpp', 'brightnessAvg', 'brightnessStdevMax',
   'laplacianStdev', 'laplacianMean', 'laplacianVariance', 'edgeRatio',
   'dpi', 'isJpeg', 'presetIdx',
-  // Thorough-only features (15-39) — NaN in fast mode
+  // Thorough-only features (15-41) — NaN in fast mode
   'foregroundRatio',
   'sharpnessRatioTopBot', 'brightnessDiffTopBot',
   'shadowEdgeCenterDiff', 'centerBrightness', 'edgeBrightness',
@@ -23,6 +24,7 @@ export const FEATURE_NAMES: readonly string[] = [
   'zoneBrightness0', 'zoneBrightness1', 'zoneBrightness2', 'zoneBrightness3',
   'zoneSharpness0', 'zoneSharpness1', 'zoneSharpness2', 'zoneSharpness3',
   'channelCount',
+  'textBaselineDeviation', 'textCharSizeCV', 'textCharShapeCV',
 ] as const;
 
 const PRESET_INDEX: Record<string, number> = { document: 0, receipt: 1, card: 2 };
@@ -88,7 +90,7 @@ export function extractFeatures(
   values[13] = isJpeg;
   values[14] = PRESET_INDEX[preset] ?? 0;
 
-  // Thorough-only features (15-39) — remain NaN in fast mode
+  // Thorough-only features (15-41) — remain NaN in fast mode
   if (mode === 'thorough') {
     // 15: foregroundRatio
     values[15] = foregroundRatio ?? NaN;
@@ -129,11 +131,8 @@ export function extractFeatures(
         const topMean = topBright / topLen;
         const botMean = botBright / botLen;
         values[17] = Math.abs(topMean - botMean);
-      } else {
-        // Can't compute top/bottom split — skip remaining greyRaw-dependent features
-        values[38] = ctx.sharpMeta?.channels ?? NaN;
-        return { names: FEATURE_NAMES, values };
       }
+      // If topLen or botLen is 0, values[17] stays NaN — continue with other features
 
       // 18-20: shadow edge/center diff
       const stripSize = Math.max(1, Math.floor(Math.min(gw, gh) * 0.1));
@@ -192,7 +191,7 @@ export function extractFeatures(
           for (let y = 0; y < lapH; y++) {
             for (let x = sx0; x < sx1; x++) {
               const v = lapD[y * lapW + x];
-              if (v > 30) { weightedY += y * v; totalW += v; }
+              if (v > DEFAULT_THRESHOLDS.laplacianEdgeThreshold) { weightedY += y * v; totalW += v; }
             }
           }
           if (totalW > 0) { xs.push((sx0 + sx1) / 2); ys.push(weightedY / totalW); }
@@ -326,6 +325,13 @@ export function extractFeatures(
 
       // 38: channelCount
       values[38] = ctx.sharpMeta?.channels ?? NaN;
+    }
+
+    // 39-41: text geometry metrics (from textGeometry analyzer)
+    if (ctx.textGeometryMetrics) {
+      values[39] = ctx.textGeometryMetrics.baselineDeviation;
+      values[40] = ctx.textGeometryMetrics.charSizeCV;
+      values[41] = ctx.textGeometryMetrics.charShapeCV;
     }
   }
 

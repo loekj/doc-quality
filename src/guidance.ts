@@ -46,5 +46,8 @@ export const ISSUE_GUIDANCE: Record<IssueCode, string> = {
   'low-ocr-confidence': 'The text in this image is difficult to read. Ensure the document is sharp, well-lit, and high resolution.',
   'file-too-large': 'The file is too large. Please reduce the file size or compress the image before uploading.',
   'resolution-too-high': 'The image resolution is excessively high. Please resize or downsample before uploading.',
+  'wavy-text-lines': 'The text lines appear wavy or uneven. Flatten the document and retake the photo on a flat surface.',
+  'inconsistent-char-size': 'Characters vary in size across the document, suggesting the paper is crumpled or folded. Flatten and retake.',
+  'distorted-char-shapes': 'Characters appear distorted or warped. Smooth out the document and photograph it on a flat surface.',
   'custom': 'A quality issue was detected with this image.',
 };

@@ -162,6 +162,16 @@ export interface Thresholds {
   directionalBlurRatioMax: number;
   /** Minimum OCR median word confidence 0-100 (default: 60) */
   ocrConfidenceMin: number;
+  /** Maximum baseline deviation normalized to image height (default: 0.02) */
+  baselineDeviationMax: number;
+  /** Maximum coefficient of variation for character sizes (default: 0.5) */
+  charSizeCVMax: number;
+  /** Maximum coefficient of variation for character shape circularity (default: 0.4) */
+  charShapeCVMax: number;
+  /** Laplacian magnitude threshold for counting edge pixels (default: 30) */
+  laplacianEdgeThreshold: number;
+  /** Greyscale threshold for text binarization 0-255 (default: 128) */
+  binarizationThreshold: number;
 }
 
 /** Quality check result */
@@ -279,6 +289,9 @@ export type IssueCode =
   | 'low-ocr-confidence'
   | 'file-too-large'
   | 'resolution-too-high'
+  | 'wavy-text-lines'
+  | 'inconsistent-char-size'
+  | 'distorted-char-shapes'
   | 'custom';
 
 /** Image metadata extracted during analysis */
@@ -322,7 +335,8 @@ export type AnalyzerName =
   | 'zoneQuality'
   | 'directionalBlur'
   | 'ocrConfidence'
-  | 'darkShadow';
+  | 'darkShadow'
+  | 'textGeometry';
 
 // ── Internal types ───────────────────────────────────────────────
 
@@ -364,4 +378,10 @@ export interface AnalysisContext {
   fftSpectrum?: import('./fft-core.js').MagnitudeSpectrum2D;
   /** FFT spectrum at full analysis resolution — used by JPEG artifact detector (JPEG only) */
   fftSpectrumFull?: import('./fft-core.js').MagnitudeSpectrum2D;
+  /** Text geometry metrics — shared between analyzer and feature extraction */
+  textGeometryMetrics?: {
+    baselineDeviation: number;
+    charSizeCV: number;
+    charShapeCV: number;
+  };
 }

@@ -82,8 +82,16 @@
     "upload-validation",
     "pdf"
   ],
-  "author": "",
+  "author": "loekj",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/loekj/doc-quality.git"
+  },
+  "homepage": "https://github.com/loekj/doc-quality#readme",
+  "bugs": {
+    "url": "https://github.com/loekj/doc-quality/issues"
+  },
   "engines": {
     "node": ">=18"
   }

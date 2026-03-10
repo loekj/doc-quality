@@ -36,6 +36,11 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   zoneSharpnessMinRatio: 0.25,
   directionalBlurRatioMax: 4.0,
   ocrConfidenceMin: 60,
+  baselineDeviationMax: 0.02,
+  charSizeCVMax: 0.5,
+  charShapeCVMax: 0.4,
+  laplacianEdgeThreshold: 30,
+  binarizationThreshold: 128,
 };
 
 /** Concrete preset names (excludes 'auto') */
@@ -62,6 +67,7 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
     backgroundP90Min: 100, // Receipts on dark surfaces — don't penalize
     darkShadowCenterMax: 100, // Receipts naturally have dark edges from surface
     zoneBrightnessMaxDiff: 80, // Receipts have natural gradient from thermal printing
+    baselineDeviationMax: 0.03, // Thermal paper curls
   },
 
   /**
