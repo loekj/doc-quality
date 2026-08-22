@@ -102,6 +102,26 @@ const MIN_LINE_INK_RATIO = 0.004;
 const X_HEIGHT_INK_SHARE = 0.5;
 /** Guard against pathological inputs. */
 const MAX_LINES = 4000;
+/**
+ * Above this ink share the darker class is the background, not the text —
+ * the page is white-on-black. Measured: normal pages run 0.004-0.045 ink,
+ * an inverted page reads 0.96.
+ */
+const INVERTED_INK_FRACTION = 0.5;
+/**
+ * Above this ink share (after polarity correction) there is no text structure
+ * to measure. Random noise reads 0.47-0.54 either way round; real pages, even
+ * dense ones, stay well under 0.2.
+ */
+const MAX_INK_FRACTION = 0.35;
+/**
+ * A band whose median ink run spans this much of the page width is a rule, a
+ * border or a table line, not a row of letters. Measured: text runs are
+ * 0.002-0.004 of the width, a horizontal rule is 0.875.
+ */
+const RULE_RUN_WIDTH_FRACTION = 0.3;
+/** ...and a rule is one unbroken run per row, where text is 5-40. */
+const RULE_MAX_RUNS_PER_ROW = 3;
 
 // ── helpers ──────────────────────────────────────────────────────
 
@@ -188,11 +208,32 @@ export function analyzeTextLines(
 ): TextLineMetrics | null {
   if (width < 64 || height < 64) return null;
 
-  const pixels = deskew(grey, width, height, skewDeg);
+  let pixels = deskew(grey, width, height, skewDeg);
+  const total = width * height;
 
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < width * height; i++) hist[pixels[i]]++;
-  const threshold = otsu(hist, width * height);
+  let hist = new Uint32Array(256);
+  for (let i = 0; i < total; i++) hist[pixels[i]]++;
+  let threshold = otsu(hist, total);
+
+  let inkPixels = 0;
+  for (let i = 0; i <= threshold; i++) inkPixels += hist[i];
+
+  // White-on-black: the darker class is the page, not the text. Flip it and
+  // re-threshold, otherwise the whole page reads as one enormous "line".
+  if (inkPixels / total > INVERTED_INK_FRACTION) {
+    const inverted = Buffer.alloc(total);
+    for (let i = 0; i < total; i++) inverted[i] = 255 - pixels[i];
+    pixels = inverted;
+    hist = new Uint32Array(256);
+    for (let i = 0; i < total; i++) hist[pixels[i]]++;
+    threshold = otsu(hist, total);
+    inkPixels = 0;
+    for (let i = 0; i <= threshold; i++) inkPixels += hist[i];
+  }
+
+  // Still mostly "ink" after correction means there is no figure/ground split
+  // at all — noise, a photograph, a solid fill. Nothing here is a text line.
+  if (inkPixels / total > MAX_INK_FRACTION) return null;
 
   // Ink per row. Text lines are the peaks; leading is the floor between them.
   const rowInk = new Int32Array(height);
@@ -317,6 +358,14 @@ function measureBand(
   if (inkCount === 0 || paperCount === 0 || runs.length === 0) return;
 
   const strokeWidth = median(runs);
+
+  // Rules, borders and table lines project exactly like text but are not text.
+  // One unbroken run spanning most of the width is the signature; letters give
+  // many short runs. Counting them as lines would drag a form's legibility
+  // score down with dozens of 3px-tall "illegible" entries.
+  const bodyRows = bodyBottom - bodyTop + 1;
+  const runsPerRow = runs.length / bodyRows;
+  if (strokeWidth / width > RULE_RUN_WIDTH_FRACTION && runsPerRow < RULE_MAX_RUNS_PER_ROW) return;
   const contrast = paperSum / paperCount - inkSum / inkCount;
   const edgeSharpness = edgeCount > 0 ? edgeGradient / edgeCount : 0;
   const inkRatio = inkCount / (inkCount + paperCount);

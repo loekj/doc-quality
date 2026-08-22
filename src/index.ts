@@ -122,7 +122,12 @@ export async function checkQuality(
     ? () => checkPdf(buffer, mode, preset, overrides, useBoundary, pagesInput, penalties, maxConcurrency, onPage, pdfStrategy, options)
     : () => checkImage(buffer, mode, preset, overrides, useBoundary, penalties, options);
 
-  if (timeout > 0) {
+  // A PDF's timeout applies per page, not to the whole document. A 20-page
+  // scan legitimately takes ~18s, and a flat 10s guard would fail the entire
+  // file — which, now that the timeout fails closed, means reporting perfectly
+  // good pages as unreadable. Per page also contains the damage: one page that
+  // hangs no longer sinks the other nineteen.
+  if (timeout > 0 && !isPdf(buffer)) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<QualityResult>((resolve) => {
       timer = setTimeout(() => {
@@ -327,7 +332,21 @@ async function checkPdf(
   // Single page — return flat result (no pageResults array)
   if (rendered.length === 1) {
     const { page, buffer: pageBuffer } = rendered[0];
-    const result = await checkImage(pageBuffer, mode, preset, overrides, useBoundary, penalties, options);
+    // PDFs skip the whole-document race, so the deadline has to be applied here.
+    const singleTimeout = options?.timeout ?? DEFAULT_TIMEOUT;
+    const result = await withTimeout(
+      () => checkImage(pageBuffer, mode, preset, overrides, useBoundary, penalties, options),
+      singleTimeout,
+      () => ({
+        pass: false,
+        score: 0,
+        confidence: 'low' as const,
+        preset: preset === 'auto' ? ('document' as const) : (preset as ConcretePreset),
+        issues: [timeoutIssue(singleTimeout)],
+        metadata: { width: 0, height: 0, megapixels: 0, format: 'pdf', fileSize: buffer.length },
+        timing: { totalMs: singleTimeout, analyzers: {} },
+      }),
+    );
     // Tag issues with page number
     for (const issue of result.issues) issue.page = page;
     // Preserve original PDF file size
@@ -348,17 +367,32 @@ async function checkPdf(
   const concurrency = maxConcurrency && maxConcurrency > 0 ? maxConcurrency : Math.min(4, rendered.length);
   const total = rendered.length;
 
+  const perPageTimeout = options?.timeout ?? DEFAULT_TIMEOUT;
+
   const pageResults = await mapWithConcurrency(
     rendered,
     concurrency,
     async ({ page, buffer: pageBuffer }) => {
-      const result = await checkImage(pageBuffer, mode, preset, overrides, useBoundary, penalties, options);
-      const pr: PageResult = {
-        page,
-        pass: result.pass,
-        score: result.score,
-        issues: result.issues.map((issue) => ({ ...issue, page })),
-      };
+      const pr = await withTimeout(
+        async () => {
+          const result = await checkImage(
+            pageBuffer, mode, preset, overrides, useBoundary, penalties, options,
+          );
+          return {
+            page,
+            pass: result.pass,
+            score: result.score,
+            issues: result.issues.map((issue) => ({ ...issue, page })),
+          } as PageResult;
+        },
+        perPageTimeout,
+        () => ({
+          page,
+          pass: false,
+          score: 0,
+          issues: [{ ...timeoutIssue(perPageTimeout), page }],
+        } as PageResult),
+      );
       onPage?.(page, total, pr);
       return pr;
     },
@@ -404,6 +438,39 @@ async function checkPdf(
   };
 }
 
+/** Timed-out page marker — the same shape a failed analysis produces. */
+function timeoutIssue(timeout: number): Issue {
+  return {
+    analyzer: 'timeout',
+    code: 'analysis-timeout',
+    guidance: ISSUE_GUIDANCE['analysis-timeout'],
+    message: `Analysis did not finish within ${timeout} ms`,
+    value: timeout,
+    threshold: timeout,
+    penalty: 0,
+  };
+}
+
+/**
+ * Race work against a deadline, clearing the timer either way.
+ *
+ * An uncleared timer holds the event loop open for its full duration after the
+ * work is already done, which turned a 43 ms check into an 8 s process.
+ */
+async function withTimeout<T>(work: () => Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  if (ms <= 0) return work();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout()), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([work(), deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * Grade a PDF from its content rather than its rendered pixels.
  *
@@ -428,9 +495,22 @@ async function checkPdfByContent(
   const total = contents.length;
   const concurrency = maxConcurrency && maxConcurrency > 0 ? maxConcurrency : Math.min(4, total);
 
+  const perPageTimeout = options?.timeout ?? DEFAULT_TIMEOUT;
+
   const analyzed = await mapWithConcurrency(contents, concurrency, async (content) => {
-    const outcome = await gradePage(
-      content, mode, preset, overrides, useBoundary, penalties, options,
+    const outcome = await withTimeout(
+      () => gradePage(content, mode, preset, overrides, useBoundary, penalties, options),
+      perPageTimeout,
+      () => ({
+        pageResult: {
+          page: content.page,
+          pass: false,
+          score: 0,
+          issues: [{ ...timeoutIssue(perPageTimeout), page: content.page }],
+          kind: content.kind,
+        } as PageResult,
+        result: null,
+      }),
     );
     onPage?.(content.page, total, outcome.pageResult);
     return outcome;
@@ -457,15 +537,18 @@ async function checkPdfByContent(
       for (const issue of single.issues) issue.page = worst.pageResult.page;
       return single;
     }
-    // Digital-text or empty page — nothing to measure.
+    // No image result. Either the page held nothing to measure — digital text,
+    // an empty page — or the analysis failed or ran out of time. Only the first
+    // case is a pass; conflating them reported a timed-out page as flawless.
+    const pageResult = worst.pageResult;
     return {
-      pass: true,
-      score: 1,
-      confidence: 'high',
+      pass: pageResult.pass,
+      score: pageResult.score,
+      confidence: pageResult.pass ? 'high' : 'low',
       preset: preset === 'auto' ? 'document' : (preset as ConcretePreset),
-      issues: [],
+      issues: pageResult.issues,
       metadata: { width: 0, height: 0, megapixels: 0, format: 'pdf', fileSize: buffer.length },
-      pdfKind: worst.pageResult.kind,
+      pdfKind: pageResult.kind,
       timing: { totalMs: Math.round(performance.now() - t0), analyzers: {} },
     };
   }

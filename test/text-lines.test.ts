@@ -149,3 +149,83 @@ describe('deep mode', () => {
     expect(values[names.indexOf('textIllegibleFraction')]).toBe(0);
   }, 90_000);
 });
+
+describe('degenerate and inverted input', () => {
+  const solid = (color: string) =>
+    sharp({ create: { width: 1200, height: 1600, channels: 3, background: color } }).png().toBuffer();
+
+  async function textPage(fill: string, background: string): Promise<Buffer> {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="2200">' +
+      `<rect width="1700" height="2200" fill="${background}"/>` +
+      Array.from({ length: 40 }, (_, i) =>
+        `<text x="60" y="${60 + i * 53}" font-size="26" font-family="Helvetica" fill="${fill}">` +
+        `The quick brown fox jumps over the lazy dog line ${i}</text>`,
+      ).join('') + '</svg>';
+    return sharp(Buffer.from(svg)).flatten({ background }).png().toBuffer();
+  }
+
+  it('reads white-on-black text the same as black-on-white', async () => {
+    const normal = await metricsOf(await textPage('#181818', '#fbfaf6'));
+    const inverted = await metricsOf(await textPage('#f5f5f5', '#101010'));
+
+    // Without polarity correction the darker class is the page itself, so the
+    // whole image came back as a single line with an x-height of 2200.
+    expect(inverted).not.toBeNull();
+    expect(inverted!.lineCount).toBe(normal!.lineCount);
+    expect(Math.abs(inverted!.medianXHeight - normal!.medianXHeight)).toBeLessThanOrEqual(1);
+  }, 90_000);
+
+  it('still catches defects on an inverted page', async () => {
+    const blurred = await sharp(await textPage('#f5f5f5', '#101010')).blur(4).png().toBuffer();
+    const metrics = await metricsOf(blurred);
+    expect(metrics!.medianStrokeSharpness).toBeLessThan(0.4);
+    expect(metrics!.illegibleFraction).toBeGreaterThan(0.5);
+  }, 90_000);
+
+  it('returns null for input with no figure/ground split', async () => {
+    expect(await metricsOf(await solid('#ffffff'))).toBeNull();
+    expect(await metricsOf(await solid('#000000'))).toBeNull();
+
+    // Random noise binarises to roughly half ink whichever way round it is read.
+    const w = 1200, h = 1600;
+    const data = Buffer.alloc(w * h * 3);
+    let seed = 7;
+    for (let i = 0; i < data.length; i++) {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      data[i] = seed >>> 24;
+    }
+    const noise = await sharp(data, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+    expect(await metricsOf(noise)).toBeNull();
+  }, 90_000);
+});
+
+describe('rules and borders are not text', () => {
+  const rule = (y: number) => `<rect x="100" y="${y}" width="1400" height="3" fill="#333"/>`;
+
+  it('ignores a page of horizontal rules', async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2000">' +
+      '<rect width="1600" height="2000" fill="#fff"/>' +
+      Array.from({ length: 30 }, (_, i) => rule(80 + i * 62)).join('') + '</svg>';
+    const buf = await sharp(Buffer.from(svg)).flatten({ background: '#fff' }).png().toBuffer();
+    // Each rule projects exactly like a text line, and each would have been
+    // recorded as a 3px-tall illegible one.
+    expect(await metricsOf(buf)).toBeNull();
+  }, 60_000);
+
+  it('counts only the text rows on a ruled invoice', async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2000">' +
+      '<rect width="1600" height="2000" fill="#fff"/>' +
+      Array.from({ length: 20 }, (_, i) =>
+        rule(70 + i * 95) +
+        `<text x="110" y="${120 + i * 95}" font-size="26" font-family="Helvetica" fill="#111">` +
+        `Item ${i} description qty 3 unit 41.20 total 123.60</text>`,
+      ).join('') + '</svg>';
+    const buf = await sharp(Buffer.from(svg)).flatten({ background: '#fff' }).png().toBuffer();
+    const metrics = await metricsOf(buf);
+    expect(metrics!.lineCount).toBe(20);
+    expect(metrics!.illegibleFraction).toBe(0);
+  }, 60_000);
+});

@@ -219,6 +219,12 @@ interface DecodedImage {
   height: number;
   kind?: number;
   data?: Uint8Array;
+  /**
+   * The source PDF object, serialised by pdf.js as e.g. `"5R"`. This is the
+   * only exact link back to the file's own object numbering — pdf.js object
+   * ids (`img_p0_1`) are positional and carry no relation to it.
+   */
+  ref?: string;
 }
 
 type Matrix = [number, number, number, number, number, number];
@@ -392,17 +398,46 @@ async function extractImageBytes(
   jpegStreams: Map<string, Buffer>,
 ): Promise<{ buffer: Buffer; format: 'jpeg' | 'png' } | null> {
   // Prefer the original JPEG: it carries the file size, bits-per-pixel and
-  // block structure that a re-encode destroys. Match by native dimensions,
-  // since pdf.js object ids do not map to PDF object numbers.
-  for (const [, bytes] of jpegStreams) {
-    const dims = readJpegSize(bytes);
-    if (dims && dims.width === obj.width && dims.height === obj.height) {
-      return { buffer: bytes, format: 'jpeg' };
-    }
-  }
+  // block structure that a re-encode destroys.
+  const jpeg = findJpegStream(obj, jpegStreams);
+  if (jpeg) return { buffer: jpeg, format: 'jpeg' };
 
   const png = await encodeDecodedPixels(obj);
   return png ? { buffer: png, format: 'png' } : null;
+}
+
+/**
+ * Find the original JPEG bytes for a decoded image.
+ *
+ * Resolution goes through the PDF object number carried in `ref`. Matching on
+ * pixel dimensions instead is not safe: a page holding a good photo and a
+ * wrecked one at the same size gave both of them the first stream found, so
+ * the damaged image was graded as clean. Dimensions are now only a fallback,
+ * and only when exactly one candidate has them.
+ */
+function findJpegStream(obj: DecodedImage, jpegStreams: Map<string, Buffer>): Buffer | null {
+  if (jpegStreams.size === 0) return null;
+
+  const refNum = /^(\d+)/.exec(obj.ref ?? '')?.[1];
+  if (refNum) {
+    const bytes = jpegStreams.get(refNum);
+    // Confirm the stream really is this image before trusting it.
+    if (bytes) {
+      const dims = readJpegSize(bytes);
+      if (dims && dims.width === obj.width && dims.height === obj.height) return bytes;
+    }
+    // A ref that resolves to nothing means our stream scan missed this object
+    // (compressed object stream, indirect /Length, an unusual filter chain).
+    // Guessing by size from here risks the very collision described above.
+    return null;
+  }
+
+  const candidates: Buffer[] = [];
+  for (const bytes of jpegStreams.values()) {
+    const dims = readJpegSize(bytes);
+    if (dims && dims.width === obj.width && dims.height === obj.height) candidates.push(bytes);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
 }
 
 /** Read width/height from a JPEG's SOF marker without decoding it. */

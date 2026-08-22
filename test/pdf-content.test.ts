@@ -203,3 +203,154 @@ describe('PDF grading uses content, not rendered pixels', () => {
     expect(result.metadata.width).toBeGreaterThan(0); // real rasterised pixels
   });
 });
+
+describe('embedded image identity', () => {
+  /** Two images of identical dimensions but very different quality. */
+  async function samePixelSizePdf() {
+    const tile = async (quality: number, label: string) => {
+      const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1200">' +
+        '<rect width="1000" height="1200" fill="#f6f3ea"/>' +
+        Array.from({ length: 12 }, (_, i) =>
+          `<text x="30" y="${60 + i * 60}" font-size="24" font-family="Helvetica" fill="#1c1c1c">${label} line ${i}</text>`,
+        ).join('') + '</svg>';
+      return sharp(Buffer.from(svg)).flatten({ background: '#f6f3ea' }).jpeg({ quality }).toBuffer();
+    };
+    const good = await tile(92, 'GOOD');
+    const bad = await tile(3, 'BAD');
+    const pdf = buildPdf([
+      null,
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      pageDict('/XObject << /Im0 5 0 R /Im1 6 0 R >>', 4),
+      streamObj('', 'q 280 0 0 340 30 400 cm /Im0 Do Q q 280 0 0 340 320 400 cm /Im1 Do Q'),
+      streamObj(
+        '/Type /XObject /Subtype /Image /Width 1000 /Height 1200 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode',
+        good,
+      ),
+      streamObj(
+        '/Type /XObject /Subtype /Image /Width 1000 /Height 1200 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode',
+        bad,
+      ),
+    ]);
+    return { pdf, good, bad };
+  }
+
+  it('resolves same-size images by PDF object, not by dimensions', async () => {
+    const { pdf, good, bad } = await samePixelSizePdf();
+    const [content] = await analyzePdfContent(pdf, [1]);
+    expect(content.images).toHaveLength(2);
+
+    // Matching on width/height alone handed both images the first stream found,
+    // so a wrecked photo was graded using a clean one's bytes.
+    const sizes = content.images.map((i) => i.buffer.length).sort((a, b) => a - b);
+    expect(sizes).toEqual([bad.length, good.length].sort((a, b) => a - b));
+    expect(new Set(sizes).size).toBe(2);
+  }, 60_000);
+
+  it('fails a page when one of its images is wrecked', async () => {
+    const { pdf } = await samePixelSizePdf();
+    const result = await checkQuality(pdf, { mode: 'thorough', timeout: 0 });
+    expect(result.pass).toBe(false);
+    expect(result.issues.map((i) => i.code)).toContain('jpeg-artifacts');
+  }, 60_000);
+});
+
+describe('multi-page PDFs', () => {
+  async function threePagePdf() {
+    const clean = await scanJpeg(1600, 2000, 80);
+    const blurred = await scanJpeg(1600, 2000, 80, 9);
+    let text = 'BT /F1 11 Tf\n';
+    for (let i = 0; i < 50; i++) {
+      text += `1 0 0 1 50 ${760 - i * 14} Tm (Digital page text line ${i} with content) Tj\n`;
+    }
+    text += 'ET';
+    const imgDict = (w: number, h: number) =>
+      `/Type /XObject /Subtype /Image /Width ${w} /Height ${h} ` +
+      `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`;
+    return buildPdf([
+      null,
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 10 0 R >> >> /Contents 7 0 R >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /XObject << /Im0 11 0 R >> >> /Contents 8 0 R >>',
+      streamObj('', text),
+      streamObj('', 'q 612 0 0 792 0 0 cm /Im0 Do Q'),
+      streamObj('', 'q 612 0 0 792 0 0 cm /Im0 Do Q'),
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      streamObj(imgDict(1600, 2000), clean),
+      streamObj(imgDict(1600, 2000), blurred),
+    ]);
+  }
+
+  it('grades each page against its own image', async () => {
+    const pdf = await threePagePdf();
+    const contents = await analyzePdfContent(pdf, 'all');
+    expect(contents.map((c) => c.kind)).toEqual(['digital-text', 'scanned', 'scanned']);
+    // Pages 2 and 3 share pixel dimensions; they must not share bytes.
+    expect(contents[1].images[0].buffer.length).not.toBe(contents[2].images[0].buffer.length);
+
+    const result = await checkQuality(pdf, { mode: 'thorough', pages: 'all', timeout: 0 });
+    const byPage = new Map(result.pageResults!.map((p) => [p.page, p]));
+    expect(byPage.get(1)!.pass).toBe(true);   // digital text
+    expect(byPage.get(2)!.pass).toBe(true);   // clean scan
+    expect(byPage.get(3)!.pass).toBe(false);  // blurred scan
+  }, 120_000);
+});
+
+describe('PDF timeouts apply per page', () => {
+  async function nPagePdf(pages: number) {
+    const objs: Array<string | Buffer | null> = [null, '<< /Type /Catalog /Pages 2 0 R >>', null];
+    let next = 3;
+    const pageIds: number[] = [];
+    const contentIds: number[] = [];
+    const imgIds: number[] = [];
+    for (let i = 0; i < pages; i++) pageIds.push(next++);
+    for (let i = 0; i < pages; i++) contentIds.push(next++);
+    for (let i = 0; i < pages; i++) imgIds.push(next++);
+    objs[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages} >>`;
+    for (let i = 0; i < pages; i++) {
+      objs[pageIds[i]] =
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] ` +
+        `/Resources << /XObject << /Im0 ${imgIds[i]} 0 R >> >> /Contents ${contentIds[i]} 0 R >>`;
+      objs[contentIds[i]] = streamObj('', 'q 612 0 0 792 0 0 cm /Im0 Do Q');
+      objs[imgIds[i]] = streamObj(
+        '/Type /XObject /Subtype /Image /Width 1200 /Height 1550 ' +
+        '/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode',
+        await scanJpeg(1200, 1550, 80),
+      );
+    }
+    return buildPdf(objs);
+  }
+
+  it('does not fail a long document under the default deadline', async () => {
+    // A flat whole-document timeout failed every page of a long scan, which
+    // matters more now that timing out fails closed.
+    const pdf = await nPagePdf(8);
+    const result = await checkQuality(pdf, { mode: 'thorough', pages: 'all' });
+    const timedOut = result.pageResults!.filter((p) =>
+      p.issues.some((i) => i.analyzer === 'timeout'),
+    );
+    expect(timedOut).toHaveLength(0);
+    expect(result.pass).toBe(true);
+  }, 180_000);
+
+  it('fails closed, page by page, when the budget really is too small', async () => {
+    const pdf = await nPagePdf(3);
+    const result = await checkQuality(pdf, { mode: 'thorough', pages: 'all', timeout: 1 });
+    expect(result.pass).toBe(false);
+    expect(result.score).toBe(0);
+    for (const page of result.pageResults!) {
+      expect(page.issues.map((i) => i.code)).toContain('analysis-timeout');
+    }
+  }, 120_000);
+
+  it('fails closed on a single page too', async () => {
+    const pdf = scannedPdf(await scanJpeg(1600, 2000, 80), 1600, 2000);
+    const result = await checkQuality(pdf, { mode: 'thorough', timeout: 1 });
+    // A null image result used to be read as "nothing to measure" and passed.
+    expect(result.pass).toBe(false);
+    expect(result.issues.map((i) => i.code)).toContain('analysis-timeout');
+  }, 60_000);
+});
