@@ -8,7 +8,7 @@ export default defineConfig([
     clean: true,
     splitting: false,
     sourcemap: true,
-    external: ['sharp', 'pdf-to-png-converter'],
+    external: ['sharp', 'pdf-to-png-converter', 'pdfjs-dist'],
   },
   {
     entry: ['src/cli.ts'],
@@ -17,7 +17,7 @@ export default defineConfig([
     splitting: false,
     sourcemap: false,
     banner: { js: '#!/usr/bin/env node' },
-    external: ['sharp', 'pdf-to-png-converter'],
+    external: ['sharp', 'pdf-to-png-converter', 'pdfjs-dist'],
   },
   {
     entry: { preflight: 'src/preflight.ts' },

@@ -49,5 +49,6 @@ export const ISSUE_GUIDANCE: Record<IssueCode, string> = {
   'wavy-text-lines': 'The text lines appear wavy or uneven. Flatten the document and retake the photo on a flat surface.',
   'inconsistent-char-size': 'Characters vary in size across the document, suggesting the paper is crumpled or folded. Flatten and retake.',
   'distorted-char-shapes': 'Characters appear distorted or warped. Smooth out the document and photograph it on a flat surface.',
+  'analysis-timeout': 'The quality check did not finish in time. Please try again, or upload a smaller file.',
   'custom': 'A quality issue was detected with this image.',
 };

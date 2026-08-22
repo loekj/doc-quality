@@ -42,6 +42,7 @@ ALL_FEATURES = FAST_FEATURES + [
     'zoneBrightness0', 'zoneBrightness1', 'zoneBrightness2', 'zoneBrightness3',
     'zoneSharpness0', 'zoneSharpness1', 'zoneSharpness2', 'zoneSharpness3',
     'channelCount',
+    'textBaselineDeviation', 'textCharSizeCV', 'textCharShapeCV',
 ]
 
 PREFLIGHT_FEATURES = [

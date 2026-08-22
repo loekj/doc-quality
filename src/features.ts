@@ -2,6 +2,7 @@ import type { AnalysisContext, Mode } from './types.js';
 import type { ConcretePreset } from './defaults.js';
 import { DEFAULT_THRESHOLDS } from './defaults.js';
 import { highFreqEnergyRatio, countSpectralPeaks, jpegBlockiness } from './fft-core.js';
+import { estimateSkewAngle } from './analyzers.js';
 
 export interface FeatureVector {
   readonly names: readonly string[];
@@ -174,40 +175,9 @@ export function extractFeatures(
         if (cumul >= target) { values[21] = b; break; }
       }
 
-      // 22: skewAngle — reuse laplacian edge center-of-mass regression
-      if (ctx.laplacian && ctx.laplacian.width >= 20 && ctx.laplacian.height >= 20) {
-        const lapD = ctx.laplacian.data;
-        const lapW = ctx.laplacian.width;
-        const lapH = ctx.laplacian.height;
-        const numStrips = Math.min(20, lapW);
-        const stripW = Math.floor(lapW / numStrips);
-        const xs: number[] = [];
-        const ys: number[] = [];
-
-        for (let s = 0; s < numStrips; s++) {
-          const sx0 = s * stripW;
-          const sx1 = Math.min(sx0 + stripW, lapW);
-          let weightedY = 0, totalW = 0;
-          for (let y = 0; y < lapH; y++) {
-            for (let x = sx0; x < sx1; x++) {
-              const v = lapD[y * lapW + x];
-              if (v > DEFAULT_THRESHOLDS.laplacianEdgeThreshold) { weightedY += y * v; totalW += v; }
-            }
-          }
-          if (totalW > 0) { xs.push((sx0 + sx1) / 2); ys.push(weightedY / totalW); }
-        }
-
-        if (xs.length >= 3) {
-          const n = xs.length;
-          let sX = 0, sY = 0, sXY = 0, sXX = 0;
-          for (let i = 0; i < n; i++) { sX += xs[i]; sY += ys[i]; sXY += xs[i] * ys[i]; sXX += xs[i] * xs[i]; }
-          const denom = n * sXX - sX * sX;
-          if (Math.abs(denom) > 1e-10) {
-            const slope = (n * sXY - sX * sY) / denom;
-            values[22] = Math.abs(Math.atan(slope) * (180 / Math.PI));
-          }
-        }
-      }
+      // 22: skewAngle — projection profile (shared with analyzeSkew, computed once)
+      const skewSigned = ctx.skewAngle ?? estimateSkewAngle(grey, gw, gh);
+      values[22] = skewSigned === null || skewSigned === undefined ? NaN : Math.abs(skewSigned);
 
       // 23: colorSaturation (requires 3+ color channels)
       if (ctx.stats && ctx.stats.channels.length >= 3) {
@@ -222,105 +192,51 @@ export function extractFeatures(
         values[24] = highFreqEnergyRatio(ctx.fftSpectrum);
         values[25] = countSpectralPeaks(ctx.fftSpectrum);
       }
-      if (ctx.greyRaw && ctx.sharpMeta?.format === 'jpeg') {
-        values[26] = jpegBlockiness(ctx.greyRaw.data, ctx.greyRaw.width, ctx.greyRaw.height);
+      if (ctx.sharpMeta?.format === 'jpeg') {
+        // Native resolution when available — the 8x8 grid does not survive a resize.
+        const src = ctx.fullResGrey ?? ctx.greyRaw;
+        if (src) values[26] = jpegBlockiness(src.data, src.width, src.height);
       }
 
-      // 27-29: zone quality summary
-      if (ctx.greyRaw && ctx.laplacian && gw >= 100 && gh >= 100) {
-        const halfGW = Math.floor(gw / 2);
-        const halfGH = Math.floor(gh / 2);
-        const zoneBright = [0, 0, 0, 0];
-        const zoneCount = [0, 0, 0, 0];
-
-        for (let y = 0; y < gh; y++) {
-          const row = y < halfGH ? 0 : 1;
-          for (let x = 0; x < gw; x++) {
-            const col = x < halfGW ? 0 : 1;
-            const idx = row * 2 + col;
-            zoneBright[idx] += grey[y * gw + x];
-            zoneCount[idx]++;
-          }
-        }
+      // 27-38: zone quality — read from the analyzer so the two cannot drift
+      if (ctx.zoneMetrics) {
+        const zm = ctx.zoneMetrics;
+        values[27] = zm.brightnessDiff;
+        values[28] = zm.sharpnessRatio;
         for (let i = 0; i < 4; i++) {
-          zoneBright[i] = zoneCount[i] > 0 ? zoneBright[i] / zoneCount[i] : 0;
+          values[30 + i] = zm.brightness[i];
+          values[34 + i] = zm.sharpness[i];
         }
+      }
 
-        const { data: lapD2, width: lw2, height: lh2 } = ctx.laplacian;
-        const halfLW = Math.floor(lw2 / 2);
-        const halfLH = Math.floor(lh2 / 2);
-        const zSum = [0, 0, 0, 0];
-        const zSumSq = [0, 0, 0, 0];
-        const zN = [0, 0, 0, 0];
+      if (ctx.fftSpectrum) {
+        const { magnitude, fftW, fftH } = ctx.fftSpectrum;
+        const halfFW = fftW >>> 1;
+        const halfFH = fftH >>> 1;
+        const numSectors = 12;
+        const sectorEnergy = new Float64Array(numSectors);
 
-        for (let y = 0; y < lh2; y++) {
-          const row = y < halfLH ? 0 : 1;
-          for (let x = 0; x < lw2; x++) {
-            const col = x < halfLW ? 0 : 1;
-            const idx = row * 2 + col;
-            const v = lapD2[y * lw2 + x];
-            zSum[idx] += v;
-            zSumSq[idx] += v * v;
-            zN[idx]++;
+        for (let y = 0; y < fftH; y++) {
+          const fy = y <= halfFH ? y : y - fftH;
+          const fyNorm = fy / halfFH;
+          for (let x = 0; x < fftW; x++) {
+            const fx = x <= halfFW ? x : x - fftW;
+            const fxNorm = fx / halfFW;
+            const r = Math.sqrt(fxNorm * fxNorm + fyNorm * fyNorm);
+            if (r < 0.05) continue;
+            // |fx|,|fy| folds the spectrum into one quadrant: angle spans [0, π/2].
+            const angle = Math.atan2(Math.abs(fyNorm), Math.abs(fxNorm));
+            const sectorIdx = Math.min(Math.floor((angle / (Math.PI / 2)) * numSectors), numSectors - 1);
+            const mag = magnitude[y * fftW + x];
+            sectorEnergy[sectorIdx] += mag * mag;
           }
         }
-        const zoneSharp = [0, 0, 0, 0];
-        for (let i = 0; i < 4; i++) {
-          if (zN[i] > 0) {
-            const m = zSum[i] / zN[i];
-            zoneSharp[i] = Math.sqrt(Math.max(0, zSumSq[i] / zN[i] - m * m));
-          }
-        }
 
-        const maxBright = Math.max(...zoneBright);
-        const minBright = Math.min(...zoneBright);
-        values[27] = maxBright - minBright;
-
-        const maxSharp = Math.max(...zoneSharp);
-        const minSharp = Math.min(...zoneSharp);
-        values[28] = maxSharp > 0 ? minSharp / maxSharp : 1;
-
-        // 29: directional energy ratio
-        if (ctx.fftSpectrum) {
-          const { magnitude, fftW, fftH } = ctx.fftSpectrum;
-          const halfFW = fftW >>> 1;
-          const halfFH = fftH >>> 1;
-          const numSectors = 12;
-          const sectorEnergy = new Float64Array(numSectors);
-
-          for (let y = 0; y < fftH; y++) {
-            const fy = y <= halfFH ? y : y - fftH;
-            const fyNorm = fy / halfFH;
-            for (let x = 0; x < fftW; x++) {
-              const fx = x <= halfFW ? x : x - fftW;
-              const fxNorm = fx / halfFW;
-              const r = Math.sqrt(fxNorm * fxNorm + fyNorm * fyNorm);
-              if (r < 0.05) continue;
-              const angle = Math.atan2(Math.abs(fyNorm), Math.abs(fxNorm));
-              const sectorIdx = Math.min(Math.floor((angle / Math.PI) * numSectors), numSectors - 1);
-              const mag = magnitude[y * fftW + x];
-              sectorEnergy[sectorIdx] += mag * mag;
-            }
-          }
-
-          const sorted = Array.from(sectorEnergy).sort((a, b) => a - b);
-          const mid = sorted.length >>> 1;
-          const medianE = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-          const maxE = sorted[sorted.length - 1];
-          values[29] = medianE > 0 ? maxE / medianE : NaN;
-        }
-
-        // 30-33: per-zone brightness
-        values[30] = zoneBright[0];
-        values[31] = zoneBright[1];
-        values[32] = zoneBright[2];
-        values[33] = zoneBright[3];
-
-        // 34-37: per-zone sharpness
-        values[34] = zoneSharp[0];
-        values[35] = zoneSharp[1];
-        values[36] = zoneSharp[2];
-        values[37] = zoneSharp[3];
+        const sorted = Array.from(sectorEnergy).sort((a, b) => a - b);
+        const mid = sorted.length >>> 1;
+        const medianE = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+        const maxE = sorted[sorted.length - 1];
+        values[29] = medianE > 0 ? maxE / medianE : NaN;
       }
 
       // 38: channelCount

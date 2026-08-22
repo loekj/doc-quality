@@ -7,8 +7,13 @@ import type { AnalysisContext, Thresholds } from '../src/types.js';
 const t = DEFAULT_THRESHOLDS;
 
 /** Build a minimal AnalysisContext with greyRaw and laplacian from a buffer */
-async function ctxFrom(buf: Buffer): Promise<AnalysisContext> {
-  const meta = await sharp(buf).metadata();
+async function ctxFrom(input: Buffer): Promise<AnalysisContext> {
+  const meta = await sharp(input).metadata();
+  // Mirror the pipeline: libvips convolve returns all zeros on an image with an
+  // alpha channel, so the flatten is load-bearing, not cosmetic.
+  const buf = meta.hasAlpha
+    ? await sharp(input).flatten({ background: { r: 255, g: 255, b: 255 } }).toBuffer()
+    : input;
   const grey = await sharp(buf).greyscale().raw().toBuffer({ resolveWithObject: true });
   const lap = await sharp(buf)
     .greyscale()
@@ -77,27 +82,37 @@ describe('analyzeZoneQuality', () => {
   });
 
   it('detects one blurry quadrant (zone sharpness issue)', async () => {
-    // Create image with textured content in 3 quadrants, blurred in bottom-right
+    // Textured content everywhere, then genuinely blur the bottom-right.
+    //
+    // The bottom-right must keep some greyscale variation. A perfectly flat
+    // block carries no information at all, which is indistinguishable from a
+    // blank margin — and blank margins must not read as "unevenly focused",
+    // or every short letter fails. Real blurred content keeps its variation:
+    // measured greyscale stdev is ~14-21 where blank margin is 0.
+    // Coarse blocks carry the "there is content here" signal that survives blur;
+    // the 1px checker on top is the fine detail the blur destroys.
     const w = 400, h = 400;
     const pixels = Buffer.alloc(w * h * 3);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const offset = (y * w + x) * 3;
-        if (y >= h / 2 && x >= w / 2) {
-          // Bottom-right: uniform (no edges → low sharpness)
-          pixels[offset] = 128;
-          pixels[offset + 1] = 128;
-          pixels[offset + 2] = 128;
-        } else {
-          // Other quadrants: high-frequency checkerboard pattern
-          const v = ((x + y) % 2 === 0) ? 50 : 200;
-          pixels[offset] = v;
-          pixels[offset + 1] = v;
-          pixels[offset + 2] = v;
-        }
+        const coarse = (Math.floor(x / 16) + Math.floor(y / 16)) % 2 === 0 ? 70 : 200;
+        const fine = (x + y) % 2 === 0 ? -25 : 25;
+        const v = Math.max(0, Math.min(255, coarse + fine));
+        pixels[offset] = v;
+        pixels[offset + 1] = v;
+        pixels[offset + 2] = v;
       }
     }
-    const buf = await sharp(pixels, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+    const textured = await sharp(pixels, { raw: { width: w, height: h, channels: 3 } }).png().toBuffer();
+    const blurredQuadrant = await sharp(textured)
+      .extract({ left: w / 2, top: h / 2, width: w / 2, height: h / 2 })
+      .blur(6)
+      .toBuffer();
+    const buf = await sharp(textured)
+      .composite([{ input: blurredQuadrant, left: w / 2, top: h / 2 }])
+      .png()
+      .toBuffer();
     const ctx = await ctxFrom(buf);
     const issue = analyzeZoneQuality(ctx, t);
     expect(issue).not.toBeNull();

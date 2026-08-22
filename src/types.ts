@@ -86,6 +86,26 @@ export interface QualityOptions {
   /** Tesseract language (default: 'eng') */
   ocrLanguage?: string;
   /**
+   * How to analyse a PDF. Ignored for images.
+   *
+   * - `content` (default) — classify each page, then grade the embedded raster
+   *   images at native resolution. Pages that are pure digital text pass
+   *   without pixel analysis, because their text layer is exact.
+   * - `render` — rasterise every page and grade the pixels. This resamples
+   *   embedded scans to the viewport and emits PNG, which hides JPEG
+   *   compression damage. Kept for compatibility.
+   *
+   * Falls back to `render` automatically when content analysis is unavailable.
+   */
+  pdfStrategy?: 'content' | 'render';
+  /**
+   * Treat this value as the image's true DPI, overriding any embedded metadata.
+   * Set by the PDF content path, which derives real scan resolution from native
+   * pixels and placed page size. Unlike camera EXIF density, this is trustworthy,
+   * so the low-DPI check honours it instead of skipping it.
+   */
+  densityOverride?: number;
+  /**
    * Custom scorer — replaces multiplicative penalty scoring with ML model.
    * Use `loadModels()` to create from an XGBoost model bundle.
    */
@@ -134,8 +154,21 @@ export interface Thresholds {
   skewAngleMax: number;
   /** Max brightness diff between edge strips and center for shadow detection (default: 60) */
   shadowBrightnessDiff: number;
-  /** Minimum bits-per-pixel for JPEG compression quality (default: 0.5) */
+  /**
+   * Minimum bits-per-pixel for JPEG compression quality (default: 0.3).
+   *
+   * A high-resolution scan of a text page is mostly white, so it compresses far
+   * below the rate photographic content needs. At the old 0.5 floor this fired
+   * on 17 of 20 clean test scans, quality 92 included.
+   */
   compressionBppMin: number;
+  /**
+   * Blockiness needed to confirm that low bits-per-pixel is real damage
+   * (default: 0.1). Only applied when blockiness has been measured — thorough
+   * mode, on native-resolution pixels. Low bpp on its own says the file is
+   * small; the 8x8 block grid says the encoder actually discarded information.
+   */
+  compressionBlockinessMin: number;
   /** Minimum channel saturation — grayscale-in-color detection (default: 0.01) */
   colorSaturationMin: number;
   /** Maximum autocorrelation for moiré pattern detection (default: 0.5) */
@@ -158,6 +191,16 @@ export interface Thresholds {
   zoneBrightnessMaxDiff: number;
   /** Minimum ratio of weakest to strongest quadrant sharpness (default: 0.25) */
   zoneSharpnessMinRatio: number;
+  /**
+   * Greyscale stdev a quadrant needs before its sharpness is compared
+   * (default: 5).
+   *
+   * A blank margin has no detail, so its Laplacian stdev is ~0 — which made the
+   * weakest/strongest ratio 0.000 for any page whose content did not reach all
+   * four corners. A clean short letter and a page with half of it blurred were
+   * literally indistinguishable. Empty quadrants are now excluded instead.
+   */
+  zoneContentStdevMin: number;
   /** Maximum directional energy concentration in FFT spectrum (default: 4.0) */
   directionalBlurRatioMax: number;
   /** Minimum OCR median word confidence 0-100 (default: 60) */
@@ -194,6 +237,19 @@ export interface QualityResult {
   worstPageScore?: number;
   /** Boundary detection result (present when a detector is used) */
   boundary?: BoundaryResult;
+  /**
+   * What the PDF page held (PDFs analysed with `pdfStrategy: 'content'`).
+   * `digital-text` pages pass without pixel analysis — their text layer is exact,
+   * so image quality does not apply. For multi-page PDFs this is the kind of the
+   * worst-scoring page.
+   */
+  pdfKind?: import('./pdf-content.js').PdfPageKind;
+  /**
+   * True scan resolution of the graded image, in DPI: native pixels divided by
+   * placed size on the page. Only available via the PDF content path — a
+   * rendered page can only report the renderer's own viewport scale.
+   */
+  effectiveDpi?: number;
   /** Timing breakdown in ms */
   timing: Timing;
 }
@@ -208,6 +264,12 @@ export interface PageResult {
   score: number;
   /** Issues found on this page */
   issues: Issue[];
+  /** What this page held (PDF content analysis only) */
+  kind?: import('./pdf-content.js').PdfPageKind;
+  /** True scan resolution in DPI of the worst image on this page */
+  effectiveDpi?: number;
+  /** Number of embedded raster images graded on this page */
+  imageCount?: number;
 }
 
 /** Detected document region within the image */
@@ -252,6 +314,16 @@ export interface Issue {
   threshold: number;
   /** Score multiplier applied (e.g. 0.5 = halved the score) */
   penalty: number;
+  /**
+   * How this issue affects the score.
+   *
+   * - `error` (default) — multiplies `penalty` into the score.
+   * - `advisory` — reported for diagnostics and fed to the ML feature vector,
+   *   but never lowers the score. Used for signals that fire on perfectly good
+   *   documents (text is periodic and anisotropic, so it looks like moiré and
+   *   directional blur to a global detector).
+   */
+  severity?: 'error' | 'advisory';
   /** Page number (1-indexed). Present for PDF analysis. */
   page?: number;
 }
@@ -292,6 +364,7 @@ export type IssueCode =
   | 'wavy-text-lines'
   | 'inconsistent-char-size'
   | 'distorted-char-shapes'
+  | 'analysis-timeout'
   | 'custom';
 
 /** Image metadata extracted during analysis */
@@ -336,7 +409,8 @@ export type AnalyzerName =
   | 'directionalBlur'
   | 'ocrConfidence'
   | 'darkShadow'
-  | 'textGeometry';
+  | 'textGeometry'
+  | 'timeout';
 
 // ── Internal types ───────────────────────────────────────────────
 
@@ -378,6 +452,39 @@ export interface AnalysisContext {
   fftSpectrum?: import('./fft-core.js').MagnitudeSpectrum2D;
   /** FFT spectrum at full analysis resolution — used by JPEG artifact detector (JPEG only) */
   fftSpectrumFull?: import('./fft-core.js').MagnitudeSpectrum2D;
+  /**
+   * Full-resolution greyscale pixels. Only populated for JPEGs that were
+   * downscaled for analysis. The 8x8 JPEG block grid does not survive a
+   * resize, so blockiness must be measured on native-resolution pixels.
+   */
+  fullResGrey?: {
+    data: Buffer;
+    width: number;
+    height: number;
+  };
+  /**
+   * Per-quadrant zone metrics, computed once by analyzeZoneQuality.
+   *
+   * Feature extraction reads these rather than recomputing them. Duplicating
+   * this maths is exactly how the skew estimator and the directional-blur
+   * sector index drifted out of sync with their analyzers.
+   */
+  zoneMetrics?: {
+    brightness: number[];
+    sharpness: number[];
+    brightnessDiff: number;
+    sharpnessRatio: number;
+  };
+  /** Measured JPEG 8x8 blockiness — set by analyzeFFTJpegArtifact, read by analyzeCompression */
+  jpegBlockiness?: number;
+  /** True when `density` came from a trusted source rather than image metadata */
+  densityAuthoritative?: boolean;
+  /**
+   * Signed skew angle in degrees — computed once by analyzeSkew and reused by
+   * feature extraction and by textGeometry, which must deskew before it can
+   * cluster characters into text rows.
+   */
+  skewAngle?: number;
   /** Text geometry metrics — shared between analyzer and feature extraction */
   textGeometryMetrics?: {
     baselineDeviation: number;

@@ -2,6 +2,28 @@ import type { AnalysisContext, Issue, Thresholds } from './types.js';
 import { highFreqEnergyRatio, countSpectralPeaks, jpegBlockiness } from './fft-core.js';
 import { ISSUE_GUIDANCE } from './guidance.js';
 
+// ── Severity scaling ─────────────────────────────────────────────
+
+/** Beyond this multiple of the threshold, extra severity stops mattering. */
+const SEVERITY_CAP = 4;
+
+/**
+ * Scale a penalty by how badly the threshold was missed.
+ *
+ * Flat penalties treat a near-miss and a catastrophe alike: a JPEG at quality
+ * 25 and one at quality 8 both scored 0.7, so the second one passed. Raising
+ * the base penalty to the power of the overshoot keeps a marginal violation
+ * marginal while letting a severe one actually sink the score.
+ *
+ * @param base - Penalty at exactly the threshold
+ * @param ratio - How far past the threshold, as a multiple (1 = exactly at it)
+ */
+export function gradedPenalty(base: number, ratio: number): number {
+  if (!Number.isFinite(ratio) || ratio <= 1) return base;
+  const exponent = Math.min(ratio, SEVERITY_CAP);
+  return Math.max(0.05, Math.min(1, base ** exponent));
+}
+
 // ── Resolution ───────────────────────────────────────────────────
 
 export function analyzeResolution(ctx: AnalysisContext, t: Thresholds): Issue | null {
@@ -236,7 +258,9 @@ const CAMERA_DPI_FLOOR = 200;
 export function analyzeDpi(ctx: AnalysisContext, t: Thresholds): Issue | null {
   const dpi = ctx.sharpMeta?.density;
   if (!dpi || dpi <= 0) return null; // No DPI metadata — skip
-  if (dpi <= CAMERA_DPI_FLOOR) return null; // Camera/phone default — skip
+  // The camera floor exists because EXIF density is meaningless on phone photos.
+  // A DPI derived from PDF page geometry is real, so it bypasses the floor.
+  if (!ctx.densityAuthoritative && dpi <= CAMERA_DPI_FLOOR) return null;
   if (dpi >= t.dpiMin) return null;
   return {
     analyzer: 'dpi',
@@ -275,6 +299,14 @@ export function analyzeCompression(ctx: AnalysisContext, t: Thresholds): Issue |
   if (totalPixels === 0) return null;
   const bpp = (ctx.originalBuffer.length * 8) / totalPixels;
   if (bpp >= t.compressionBppMin) return null;
+
+  // Low bits-per-pixel alone only proves the file is small. Oversampled text
+  // is mostly white and compresses hard without losing anything. When the 8x8
+  // block grid has been measured, require it to agree before calling it damage.
+  if (ctx.jpegBlockiness !== undefined && ctx.jpegBlockiness < t.compressionBlockinessMin) {
+    return null;
+  }
+
   return {
     analyzer: 'compression',
     code: 'heavy-compression',
@@ -282,7 +314,7 @@ export function analyzeCompression(ctx: AnalysisContext, t: Thresholds): Issue |
     message: `Heavy JPEG compression (${bpp.toFixed(2)} bpp, minimum ${t.compressionBppMin})`,
     value: bpp,
     threshold: t.compressionBppMin,
-    penalty: 0.7,
+    penalty: gradedPenalty(0.7, bpp > 0 ? t.compressionBppMin / bpp : SEVERITY_CAP),
   };
 }
 
@@ -339,56 +371,160 @@ export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null
   };
 }
 
-// ── Skew detection (edge pixel center-of-mass regression) ────────
+// ── Skew detection (projection profile) ──────────────────────────
+
+/** Longest side used for skew estimation. Smaller is faster; 700px is plenty. */
+const SKEW_MAX_DIM = 700;
+/** Coarse search half-range in degrees. */
+const SKEW_SEARCH_DEG = 15;
+/** Minimum foreground pixels needed for a stable estimate. */
+const SKEW_MIN_FOREGROUND = 200;
+/** Cap on foreground samples — keeps cost bounded on near-black images. */
+const SKEW_MAX_SAMPLES = 120_000;
+
+/** Otsu's method — returns the greyscale threshold maximising between-class variance. */
+function otsuThreshold(hist: Uint32Array, total: number): number {
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let best = -1;
+  let threshold = 128;
+
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += i * hist[i];
+    const meanB = sumB / wB;
+    const meanF = (sum - sumB) / wF;
+    const between = wB * wF * (meanB - meanF) * (meanB - meanF);
+    if (between > best) {
+      best = between;
+      threshold = i;
+    }
+  }
+  return threshold;
+}
+
+/**
+ * Estimate document skew in degrees via projection profiling.
+ *
+ * Shears the binarised foreground by a candidate angle, projects onto the Y
+ * axis, and scores the profile by sum-of-squares. When text lines align with
+ * the projection axis the profile becomes a series of tall spikes, which
+ * maximises that score. Coarse pass at 1°, then a refinement pass at 0.1°.
+ *
+ * Replaces an edge center-of-mass regression that tracked where ink sat on the
+ * page rather than the angle of its baselines. Measured against pages rotated
+ * by known amounts, that method averaged 34.5° of error and inverted the sign
+ * above ~2°; this one averages 0.06°.
+ *
+ * Returns null when there is not enough foreground to measure.
+ */
+export function estimateSkewAngle(
+  grey: Buffer | Uint8Array,
+  width: number,
+  height: number,
+): number | null {
+  if (width < 20 || height < 20) return null;
+
+  // Decimate by an integer stride — cheaper than resampling and good enough,
+  // because we only need the position of ink, not its exact shape.
+  const stride = Math.max(1, Math.ceil(Math.max(width, height) / SKEW_MAX_DIM));
+  const sw = Math.floor(width / stride);
+  const sh = Math.floor(height / stride);
+  if (sw < 20 || sh < 20) return null;
+
+  const hist = new Uint32Array(256);
+  for (let y = 0; y < sh; y++) {
+    const row = y * stride * width;
+    for (let x = 0; x < sw; x++) hist[grey[row + x * stride]]++;
+  }
+  const threshold = otsuThreshold(hist, sw * sh);
+
+  // Collect foreground (dark) pixel coordinates.
+  let fgTotal = 0;
+  for (let i = 0; i <= threshold; i++) fgTotal += hist[i];
+  if (fgTotal < SKEW_MIN_FOREGROUND) return null;
+
+  const sampleStep = fgTotal > SKEW_MAX_SAMPLES ? Math.ceil(fgTotal / SKEW_MAX_SAMPLES) : 1;
+  const capacity = Math.ceil(fgTotal / sampleStep) + 1;
+  const fx = new Float32Array(capacity);
+  const fy = new Float32Array(capacity);
+
+  let seen = 0;
+  let n = 0;
+  for (let y = 0; y < sh && n < capacity; y++) {
+    const row = y * stride * width;
+    for (let x = 0; x < sw; x++) {
+      if (grey[row + x * stride] > threshold) continue;
+      if (seen++ % sampleStep !== 0) continue;
+      if (n >= capacity) break;
+      fx[n] = x;
+      fy[n] = y;
+      n++;
+    }
+  }
+  if (n < SKEW_MIN_FOREGROUND) return null;
+
+  const cx = sw / 2;
+  const profile = new Float64Array(sh + 1);
+
+  function profileScore(angleDeg: number): number {
+    profile.fill(0);
+    const tan = Math.tan((angleDeg * Math.PI) / 180);
+    let counted = 0;
+    for (let i = 0; i < n; i++) {
+      const yy = fy[i] - (fx[i] - cx) * tan;
+      // Drop points sheared off the page. Clamping them instead piled every
+      // stray point into bin 0 or bin sh, and that artificial spike made the
+      // most extreme angle score highest — a straight sparse page measured 16°.
+      if (yy < 0 || yy >= sh) continue;
+      profile[yy | 0]++;
+      counted++;
+    }
+    if (counted === 0) return 0;
+    // Normalise by the points actually counted, so an angle cannot win simply
+    // by shearing content out of the profile.
+    let score = 0;
+    for (let i = 0; i < sh; i++) score += profile[i] * profile[i];
+    return score / counted;
+  }
+
+  let bestAngle = 0;
+  let bestScore = -1;
+  for (let a = -SKEW_SEARCH_DEG; a <= SKEW_SEARCH_DEG; a += 1) {
+    const score = profileScore(a);
+    if (score > bestScore) {
+      bestScore = score;
+      bestAngle = a;
+    }
+  }
+  const fineFrom = Math.max(-SKEW_SEARCH_DEG, bestAngle - 1);
+  const fineTo = Math.min(SKEW_SEARCH_DEG, bestAngle + 1);
+  for (let a = fineFrom; a <= fineTo + 1e-9; a += 0.1) {
+    const score = profileScore(a);
+    if (score > bestScore) {
+      bestScore = score;
+      bestAngle = a;
+    }
+  }
+
+  return Math.round(bestAngle * 100) / 100;
+}
 
 export function analyzeSkew(ctx: AnalysisContext, t: Thresholds): Issue | null {
-  if (!ctx.laplacian || ctx.laplacian.width < 20 || ctx.laplacian.height < 20) return null;
+  if (!ctx.greyRaw) return null;
+  const { data, width, height } = ctx.greyRaw;
 
-  const { data, width, height } = ctx.laplacian;
-  const numStrips = Math.min(20, width);
-  const stripWidth = Math.floor(width / numStrips);
+  const angle = estimateSkewAngle(data, width, height);
+  if (angle === null) return null;
 
-  // For each vertical strip, compute center-of-mass of edge pixels (>30)
-  const xs: number[] = [];
-  const ys: number[] = [];
-
-  for (let s = 0; s < numStrips; s++) {
-    const x0 = s * stripWidth;
-    const x1 = Math.min(x0 + stripWidth, width);
-    let weightedY = 0;
-    let totalWeight = 0;
-    for (let y = 0; y < height; y++) {
-      for (let x = x0; x < x1; x++) {
-        const v = data[y * width + x];
-        if (v > t.laplacianEdgeThreshold) {
-          weightedY += y * v;
-          totalWeight += v;
-        }
-      }
-    }
-    if (totalWeight > 0) {
-      xs.push((x0 + x1) / 2);
-      ys.push(weightedY / totalWeight);
-    }
-  }
-
-  if (xs.length < 3) return null;
-
-  // Linear regression: y = mx + b → slope m → angle = atan(m * aspectRatio)
-  const n = xs.length;
-  let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-  for (let i = 0; i < n; i++) {
-    sumX += xs[i];
-    sumY += ys[i];
-    sumXY += xs[i] * ys[i];
-    sumXX += xs[i] * xs[i];
-  }
-  const denom = n * sumXX - sumX * sumX;
-  if (Math.abs(denom) < 1e-10) return null;
-
-  const slope = (n * sumXY - sumX * sumY) / denom;
-  const angleDeg = Math.abs(Math.atan(slope) * (180 / Math.PI));
-
+  ctx.skewAngle = angle; // signed — textGeometry needs the direction to deskew
+  const angleDeg = Math.abs(angle);
   if (angleDeg <= t.skewAngleMax) return null;
 
   return {
@@ -430,6 +566,9 @@ export function analyzeColorDepth(ctx: AnalysisContext, t: Thresholds): Issue | 
     value: saturation,
     threshold: t.colorSaturationMin,
     penalty: 0.97,
+    // Advisory: a greyscale scan stored as RGB is a file-format observation,
+    // not a quality defect. Fires on ~62% of real documents.
+    severity: 'advisory',
   };
 }
 
@@ -510,6 +649,9 @@ export function analyzeFFTMoire(ctx: AnalysisContext, t: Thresholds): Issue | nu
     value: peaks,
     threshold: t.fftMoirePeaksMax,
     penalty: 0.7,
+    // Advisory: printed text is periodic, so a clean page produces 20k-37k
+    // spectral peaks on its own. Kept as an ML feature, not a gate.
+    severity: 'advisory',
   };
 }
 
@@ -664,15 +806,50 @@ export function analyzeZoneQuality(ctx: AnalysisContext, t: Thresholds): Issue |
     }
   }
 
+  // Which quadrants actually hold content? Greyscale spread answers that:
+  // blank paper is uniform, blurred text is still a smudge with variation.
+  const zoneGreySq = [0, 0, 0, 0];
+  const zoneGreySum = [0, 0, 0, 0];
+  const zoneGreyN = [0, 0, 0, 0];
+  for (let y = 0; y < gh; y++) {
+    const row = y < halfGH ? 0 : 1;
+    for (let x = 0; x < gw; x++) {
+      const idx = row * 2 + (x < halfGW ? 0 : 1);
+      const v = grey[y * gw + x];
+      zoneGreySum[idx] += v;
+      zoneGreySq[idx] += v * v;
+      zoneGreyN[idx]++;
+    }
+  }
+  const contentSharpness: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    if (zoneGreyN[i] === 0) continue;
+    const m = zoneGreySum[i] / zoneGreyN[i];
+    const stdev = Math.sqrt(Math.max(0, zoneGreySq[i] / zoneGreyN[i] - m * m));
+    if (stdev >= t.zoneContentStdevMin) contentSharpness.push(zoneSharpness[i]);
+  }
+
   // Brightness check: max spread across quadrants
   const maxBright = Math.max(...zoneBrightness);
   const minBright = Math.min(...zoneBrightness);
   const brightDiff = maxBright - minBright;
 
-  // Sharpness check: ratio of weakest to strongest
-  const maxSharp = Math.max(...zoneSharpness);
-  const minSharp = Math.min(...zoneSharpness);
-  const sharpRatio = maxSharp > 0 ? minSharp / maxSharp : 1;
+  // Sharpness check: weakest against strongest, over quadrants holding content.
+  // Fewer than two means there is nothing to compare — a one-column letter is
+  // not unevenly focused just because three quadrants are margin.
+  let sharpRatio = 1;
+  if (contentSharpness.length >= 2) {
+    const maxSharp = Math.max(...contentSharpness);
+    const minSharp = Math.min(...contentSharpness);
+    sharpRatio = maxSharp > 0 ? minSharp / maxSharp : 1;
+  }
+
+  ctx.zoneMetrics = {
+    brightness: zoneBrightness,
+    sharpness: zoneSharpness,
+    brightnessDiff: brightDiff,
+    sharpnessRatio: sharpRatio,
+  };
 
   const brightIssue = brightDiff > t.zoneBrightnessMaxDiff;
   const sharpIssue = sharpRatio < t.zoneSharpnessMinRatio;
@@ -728,10 +905,11 @@ export function analyzeDirectionalBlur(ctx: AnalysisContext, t: Thresholds): Iss
       const r = Math.sqrt(fxNorm * fxNorm + fyNorm * fyNorm);
       if (r < 0.05) continue;
 
-      // Compute angle [0, π) — we fold into half-circle since spectrum is symmetric
-      let angle = Math.atan2(Math.abs(fyNorm), Math.abs(fxNorm));
-      // Map to sector index [0, numSectors)
-      const sectorIdx = Math.min(Math.floor((angle / Math.PI) * numSectors), numSectors - 1);
+      // Taking |fx| and |fy| folds the spectrum into a single quadrant, so the
+      // angle spans [0, π/2] — not [0, π). Dividing by π left the top 5 sectors
+      // permanently empty and made the median a degenerate statistic.
+      const angle = Math.atan2(Math.abs(fyNorm), Math.abs(fxNorm));
+      const sectorIdx = Math.min(Math.floor((angle / (Math.PI / 2)) * numSectors), numSectors - 1);
 
       const mag = magnitude[y * fftW + x];
       sectorEnergy[sectorIdx] += mag * mag;
@@ -759,6 +937,10 @@ export function analyzeDirectionalBlur(ctx: AnalysisContext, t: Thresholds): Iss
     value: ratio,
     threshold: t.directionalBlurRatioMax,
     penalty: 0.65,
+    // Advisory: text is inherently anisotropic (horizontal baselines, vertical
+    // stems), so a sharp page scores ~45 against a threshold of 4. The ratio is
+    // still a useful ML feature; it is not a usable gate on its own.
+    severity: 'advisory',
   };
 }
 
@@ -1003,11 +1185,20 @@ export function analyzeTextGeometry(ctx: AnalysisContext, t: Thresholds): Issue[
 
   // ── Signal 1: Baseline straightness ──────────────────────────
   // Cluster components into rows by centroid Y, fit lines, measure residuals
-  const centroids = dominantComps.map(c => ({
-    cx: c.sumX / c.area,
-    cy: c.sumY / c.area,
-    comp: c,
-  }));
+  // Remove global page skew first. Row clustering cuts on gaps in y, so on a
+  // tilted page characters from neighbouring lines interleave, rows get mixed,
+  // and the residual explodes — every tilted page read as "wavy text lines".
+  // Deskewing separates tilt (already reported by analyzeSkew) from waviness.
+  const skewTan = Math.tan(((ctx.skewAngle ?? 0) * Math.PI) / 180);
+  const midX = width / 2;
+  const centroids = dominantComps.map(c => {
+    const cx = c.sumX / c.area;
+    return {
+      cx,
+      cy: c.sumY / c.area - (cx - midX) * skewTan,
+      comp: c,
+    };
+  });
   centroids.sort((a, b) => a.cy - b.cy);
 
   // Cluster into rows: components within rowGap of each other are same row
@@ -1118,6 +1309,11 @@ export function analyzeTextGeometry(ctx: AnalysisContext, t: Thresholds): Issue[
       value: charShapeCV,
       threshold: t.charShapeCVMax,
       penalty: 0.65,
+      // Advisory: circularity varies by letter ('i' vs 'o' vs 'm') and by
+      // resolution. Clean scans measure 0.21, 0.39 and 0.41 against a 0.4 limit
+      // — the gate is a coin flip. Baseline deviation and size CV keep their
+      // margins and stay as gates; this one is a feature only.
+      severity: 'advisory',
     });
   }
 
@@ -1125,8 +1321,14 @@ export function analyzeTextGeometry(ctx: AnalysisContext, t: Thresholds): Issue[
 }
 
 export function analyzeFFTJpegArtifact(ctx: AnalysisContext, t: Thresholds): Issue | null {
-  if (!ctx.greyRaw || ctx.sharpMeta?.format !== 'jpeg') return null;
-  const blockiness = jpegBlockiness(ctx.greyRaw.data, ctx.greyRaw.width, ctx.greyRaw.height);
+  if (ctx.sharpMeta?.format !== 'jpeg') return null;
+  // Prefer native-resolution pixels: the 8x8 JPEG grid is destroyed by the
+  // analysis downscale, which made this analyzer return 0.000 for every image
+  // wider than analysisMaxPx — i.e. every phone photo.
+  const src = ctx.fullResGrey ?? ctx.greyRaw;
+  if (!src) return null;
+  const blockiness = jpegBlockiness(src.data, src.width, src.height);
+  ctx.jpegBlockiness = blockiness; // analyzeCompression corroborates against this
   if (blockiness <= t.fftJpegGridMax) return null;
   return {
     analyzer: 'fftJpegArtifact',
@@ -1135,6 +1337,6 @@ export function analyzeFFTJpegArtifact(ctx: AnalysisContext, t: Thresholds): Iss
     message: `JPEG block artifacts detected (blockiness ${blockiness.toFixed(3)}, maximum ${t.fftJpegGridMax})`,
     value: blockiness,
     threshold: t.fftJpegGridMax,
-    penalty: 0.8,
+    penalty: gradedPenalty(0.8, t.fftJpegGridMax > 0 ? blockiness / t.fftJpegGridMax : SEVERITY_CAP),
   };
 }

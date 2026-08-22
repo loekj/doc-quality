@@ -124,8 +124,10 @@ export async function runPipeline(
     originalBuffer: buffer,
     analysisBuffer,
     metadata: { width, height, format: meta.format },
+    // A trusted DPI (from PDF page geometry) beats whatever the file claims.
+    densityAuthoritative: options?.densityOverride !== undefined,
     sharpMeta: {
-      density: meta.density,
+      density: options?.densityOverride ?? meta.density,
       channels: meta.channels,
       space: meta.space,
       format: meta.format,
@@ -198,9 +200,13 @@ export async function runPipeline(
   push(issues, analyzeBlankPage(ctx, thresholds));
   timings.blankPage = performance.now() - t;
 
-  t = performance.now();
-  push(issues, analyzeCompression(ctx, thresholds));
-  timings.compression = performance.now() - t;
+  // Fast mode has no blockiness measurement, so it runs the bits-per-pixel
+  // check on its own. Thorough mode defers until the block grid is known.
+  if (mode !== 'thorough') {
+    t = performance.now();
+    push(issues, analyzeCompression(ctx, thresholds));
+    timings.compression = performance.now() - t;
+  }
 
   // ── Thorough-only checks ─────────────────────────────────────
   if (mode === 'thorough') {
@@ -258,20 +264,39 @@ export async function runPipeline(
     push(issues, analyzeZoneQuality(ctx, thresholds));
     timings.zoneQuality = performance.now() - t;
 
+    // Skew detection (projection profile over greyRaw).
+    // Must run before textGeometry, which deskews using ctx.skewAngle.
+    t = performance.now();
+    push(issues, analyzeSkew(ctx, thresholds));
+    timings.skew = performance.now() - t;
+
     // Text geometry (crumpled/folded detection — reuses greyRaw)
     t = performance.now();
     for (const issue of analyzeTextGeometry(ctx, thresholds)) issues.push(issue);
     timings.textGeometry = performance.now() - t;
 
-    // Skew detection (reuses laplacian)
-    t = performance.now();
-    push(issues, analyzeSkew(ctx, thresholds));
-    timings.skew = performance.now() - t;
-
     // Color depth (reuses stats + sharpMeta)
     t = performance.now();
     push(issues, analyzeColorDepth(ctx, thresholds));
     timings.colorDepth = performance.now() - t;
+
+    // Native-resolution greyscale — only for downscaled JPEGs, and only so the
+    // 8x8 block grid survives. Transient: ~12 MB for a 12 MP photo, ~15 ms.
+    if (needsResize && ctx.sharpMeta?.format === 'jpeg') {
+      try {
+        const fullGrey = await sharp(analysisSource)
+          .greyscale()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        ctx.fullResGrey = {
+          data: fullGrey.data,
+          width: fullGrey.info.width,
+          height: fullGrey.info.height,
+        };
+      } catch {
+        // Decode failed — fall back to the resized pixels.
+      }
+    }
 
     // FFT spectrum computation + built-in FFT analyzers
     t = performance.now();
@@ -293,6 +318,11 @@ export async function runPipeline(
     t = performance.now();
     push(issues, analyzeFFTJpegArtifact(ctx, thresholds));
     timings.fftJpegArtifact = performance.now() - t;
+
+    // Now that blockiness is measured, the compression check can corroborate.
+    t = performance.now();
+    push(issues, analyzeCompression(ctx, thresholds));
+    timings.compression = performance.now() - t;
 
     // Directional blur (reuses fftSpectrum)
     t = performance.now();
@@ -357,11 +387,14 @@ export async function runPipeline(
   }
 
   if (!usedScorer) {
-    // Default: multiplicative penalties (exact current behavior)
+    // Default: multiplicative penalties over `error` issues only.
+    // `advisory` issues are still reported and still reach the feature vector,
+    // but they do not lower the score — they fire on good documents.
     score = 1.0;
     for (const issue of issues) {
       const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
       issue.penalty = effectivePenalty;
+      if (issue.severity === 'advisory') continue;
       score *= effectivePenalty;
     }
   } else {

@@ -7,6 +7,9 @@ import { detectDocumentBounds } from './boundary.js';
 import type { ConcretePreset } from './defaults.js';
 import type { QualityOptions, QualityResult, Issue, PageResult, AnalyzerName } from './types.js';
 import { isPdf, parsePages, renderPdfPages } from './pdf.js';
+import { ISSUE_GUIDANCE } from './guidance.js';
+import { analyzePdfContent } from './pdf-content.js';
+import type { PdfPageContent, PdfPageKind, EmbeddedImage } from './pdf-content.js';
 
 /**
  * Supported image formats (via Sharp).
@@ -49,6 +52,9 @@ export { computeSpectrum2D } from './fft-core.js';
 export type { MagnitudeSpectrum2D } from './fft-core.js';
 export { isPdf, parsePages } from './pdf.js';
 export { detectDocumentBounds } from './boundary.js';
+export { estimateSkewAngle, gradedPenalty } from './analyzers.js';
+export { analyzePdfContent } from './pdf-content.js';
+export type { PdfPageContent, PdfPageKind, EmbeddedImage } from './pdf-content.js';
 export type { OcrResult } from './ocr.js';
 export { preflight, PREFLIGHT_DEFAULTS } from './preflight.js';
 export type { PreflightResult, PreflightIssue, PreflightOptions, PreflightThresholds } from './preflight.js';
@@ -104,32 +110,52 @@ export async function checkQuality(
     penalties,
     maxConcurrency,
     onPage,
+    pdfStrategy = 'content',
   } = options;
 
   // Boundary detection only runs in thorough mode
   const useBoundary = mode === 'thorough' ? boundaryDetector : undefined;
 
   const run = isPdf(buffer)
-    ? () => checkPdf(buffer, mode, preset, overrides, useBoundary, pagesInput, penalties, maxConcurrency, onPage, options)
+    ? () => checkPdf(buffer, mode, preset, overrides, useBoundary, pagesInput, penalties, maxConcurrency, onPage, pdfStrategy, options)
     : () => checkImage(buffer, mode, preset, overrides, useBoundary, penalties, options);
 
   if (timeout > 0) {
-    return Promise.race([
-      run(),
-      new Promise<QualityResult>((resolve) =>
-        setTimeout(() => {
-          resolve({
-            pass: true,
-            score: 1,
-            confidence: 'high' as const,
-            preset: preset === 'auto' ? 'document' : preset,
-            issues: [],
-            metadata: { width: 0, height: 0, megapixels: 0, fileSize: buffer.length },
-            timing: { totalMs: timeout, analyzers: {} },
-          });
-        }, timeout),
-      ),
-    ]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<QualityResult>((resolve) => {
+      timer = setTimeout(() => {
+        // Fail closed. A check that did not finish tells us nothing about the
+        // image, so it must not report a perfect score — it previously returned
+        // pass: true / score: 1, which made a slow image look flawless.
+        resolve({
+          pass: false,
+          score: 0,
+          confidence: 'low' as const,
+          preset: preset === 'auto' ? 'document' : preset,
+          issues: [
+            {
+              analyzer: 'timeout',
+              code: 'analysis-timeout',
+              guidance: ISSUE_GUIDANCE['analysis-timeout'],
+              message: `Analysis did not finish within ${timeout} ms`,
+              value: timeout,
+              threshold: timeout,
+              penalty: 0,
+            },
+          ],
+          metadata: { width: 0, height: 0, megapixels: 0, fileSize: buffer.length },
+          timing: { totalMs: timeout, analyzers: {} },
+        });
+      }, timeout);
+      // Do not hold the event loop open once the real work is done.
+      timer.unref?.();
+    });
+
+    try {
+      return await Promise.race([run(), timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   return run();
@@ -259,10 +285,29 @@ async function checkPdf(
   penalties?: Partial<Record<AnalyzerName, number>>,
   maxConcurrency?: number,
   onPage?: QualityOptions['onPage'],
+  pdfStrategy: 'content' | 'render' = 'content',
   options?: QualityOptions,
 ): Promise<QualityResult> {
   const t0 = performance.now();
   const parsed = parsePages(pagesInput);
+
+  // Preferred path: classify each page and grade its embedded images at native
+  // resolution. Falls through to rasterising if pdfjs is missing or the file
+  // cannot be parsed — a malformed PDF should still get a best-effort answer.
+  if (pdfStrategy === 'content') {
+    try {
+      const contents = await analyzePdfContent(buffer, parsed);
+      if (contents.length > 0) {
+        return await checkPdfByContent(
+          buffer, contents, mode, preset, overrides, useBoundary,
+          penalties, maxConcurrency, onPage, options, t0,
+        );
+      }
+    } catch {
+      // Content analysis unavailable — rasterise instead.
+    }
+  }
+
   const rendered = await renderPdfPages(buffer, parsed);
 
   if (rendered.length === 0) {
@@ -354,6 +399,169 @@ async function checkPdf(
       totalMs: Math.round(performance.now() - t0),
       analyzers: {},
     },
+  };
+}
+
+/**
+ * Grade a PDF from its content rather than its rendered pixels.
+ *
+ * Digital-text and empty pages pass without pixel analysis: their text layer is
+ * exact, so there is no image quality to measure. Pages holding raster content
+ * are graded on the embedded images themselves, at native resolution, with the
+ * true scan DPI derived from how large each image is placed on the page.
+ */
+async function checkPdfByContent(
+  buffer: Buffer,
+  contents: PdfPageContent[],
+  mode: QualityOptions['mode'] & string,
+  preset: QualityOptions['preset'] & string,
+  overrides: QualityOptions['thresholds'],
+  useBoundary: QualityOptions['boundaryDetector'],
+  penalties: Partial<Record<AnalyzerName, number>> | undefined,
+  maxConcurrency: number | undefined,
+  onPage: QualityOptions['onPage'] | undefined,
+  options: QualityOptions | undefined,
+  t0: number,
+): Promise<QualityResult> {
+  const total = contents.length;
+  const concurrency = maxConcurrency && maxConcurrency > 0 ? maxConcurrency : Math.min(4, total);
+
+  const analyzed = await mapWithConcurrency(contents, concurrency, async (content) => {
+    const outcome = await gradePage(
+      content, mode, preset, overrides, useBoundary, penalties, options,
+    );
+    onPage?.(content.page, total, outcome.pageResult);
+    return outcome;
+  });
+
+  const pageResults = analyzed.map((a) => a.pageResult);
+  const allIssues: Issue[] = pageResults.flatMap((pr) => pr.issues);
+
+  const avgScore = pageResults.reduce((sum, pr) => sum + pr.score, 0) / pageResults.length;
+  const worstScore = Math.min(...pageResults.map((pr) => pr.score));
+  const worstIdx = pageResults.findIndex((pr) => pr.score === worstScore);
+  const worst = analyzed[worstIdx >= 0 ? worstIdx : 0];
+
+  // Single page keeps the flat image-result shape callers already expect.
+  if (total === 1) {
+    const single = worst.result;
+    if (single) {
+      single.metadata.fileSize = buffer.length;
+      single.timing.totalMs = Math.round(performance.now() - t0);
+      single.pdfKind = worst.pageResult.kind;
+      if (worst.pageResult.effectiveDpi !== undefined) {
+        single.effectiveDpi = worst.pageResult.effectiveDpi;
+      }
+      for (const issue of single.issues) issue.page = worst.pageResult.page;
+      return single;
+    }
+    // Digital-text or empty page — nothing to measure.
+    return {
+      pass: true,
+      score: 1,
+      confidence: 'high',
+      preset: preset === 'auto' ? 'document' : (preset as ConcretePreset),
+      issues: [],
+      metadata: { width: 0, height: 0, megapixels: 0, format: 'pdf', fileSize: buffer.length },
+      pdfKind: worst.pageResult.kind,
+      timing: { totalMs: Math.round(performance.now() - t0), analyzers: {} },
+    };
+  }
+
+  const finalScore = Math.round(avgScore * 100) / 100;
+  const resolvedPreset = worst.result?.preset
+    ?? (preset === 'auto' ? ('document' as const) : (preset as ConcretePreset));
+  const threshold = resolveThresholds(resolvedPreset, overrides).passThreshold;
+  const dist = Math.abs(finalScore - threshold);
+
+  return {
+    pass: pageResults.every((pr) => pr.pass),
+    score: finalScore,
+    confidence: dist >= 0.2 ? 'high' : dist >= 0.1 ? 'medium' : 'low',
+    worstPageScore: Math.round(worstScore * 100) / 100,
+    preset: resolvedPreset,
+    issues: allIssues,
+    pageResults,
+    metadata: {
+      width: worst.result?.metadata.width ?? 0,
+      height: worst.result?.metadata.height ?? 0,
+      megapixels: worst.result?.metadata.megapixels ?? 0,
+      format: 'pdf',
+      fileSize: buffer.length,
+    },
+    pdfKind: worst.pageResult.kind,
+    ...(worst.pageResult.effectiveDpi !== undefined
+      ? { effectiveDpi: worst.pageResult.effectiveDpi }
+      : {}),
+    timing: { totalMs: Math.round(performance.now() - t0), analyzers: {} },
+  };
+}
+
+/** Grade one classified page. Returns the page summary plus the worst image's full result. */
+async function gradePage(
+  content: PdfPageContent,
+  mode: QualityOptions['mode'] & string,
+  preset: QualityOptions['preset'] & string,
+  overrides: QualityOptions['thresholds'],
+  useBoundary: QualityOptions['boundaryDetector'],
+  penalties: Partial<Record<AnalyzerName, number>> | undefined,
+  options: QualityOptions | undefined,
+): Promise<{ pageResult: PageResult; result: QualityResult | null }> {
+  if (content.kind === 'digital-text' || content.kind === 'empty' || content.images.length === 0) {
+    return {
+      pageResult: {
+        page: content.page,
+        pass: true,
+        score: 1,
+        issues: [],
+        kind: content.kind,
+        imageCount: 0,
+      },
+      result: null,
+    };
+  }
+
+  const graded: Array<{ image: EmbeddedImage; result: QualityResult }> = [];
+  for (const image of content.images) {
+    try {
+      const result = await checkImage(
+        image.buffer, mode, preset, overrides, useBoundary, penalties,
+        { ...options, densityOverride: image.effectiveDpi },
+      );
+      graded.push({ image, result });
+    } catch {
+      // A single unreadable image must not sink the whole page.
+    }
+  }
+
+  if (graded.length === 0) {
+    return {
+      pageResult: {
+        page: content.page, pass: true, score: 1, issues: [],
+        kind: content.kind, imageCount: 0,
+      },
+      result: null,
+    };
+  }
+
+  // The worst image governs the page: one unreadable photo makes the page unusable.
+  graded.sort((a, b) => a.result.score - b.result.score);
+  const worst = graded[0];
+  const issues = graded.flatMap(({ result }) =>
+    result.issues.map((issue) => ({ ...issue, page: content.page })),
+  );
+
+  return {
+    pageResult: {
+      page: content.page,
+      pass: graded.every(({ result }) => result.pass),
+      score: worst.result.score,
+      issues,
+      kind: content.kind,
+      effectiveDpi: worst.image.effectiveDpi,
+      imageCount: graded.length,
+    },
+    result: worst.result,
   };
 }
 
