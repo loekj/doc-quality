@@ -81,7 +81,24 @@ describe('extractFeatures', () => {
     const vec = extractFeatures(ctx, 'fast', 'document');
     expect(vec.names).toEqual(FEATURE_NAMES);
     expect(vec.values.length).toBe(FEATURE_NAMES.length);
-    expect(vec.values.length).toBe(42);
+  });
+
+  it('keeps existing feature positions stable', () => {
+    // Trained models address features by index — `split: 8` means whatever sits
+    // at position 8. Reordering or inserting silently changes what every tree
+    // in an existing model reads. New features must be appended, never spliced
+    // in. A bare length check does not catch a reorder; this does.
+    expect(FEATURE_NAMES.slice(0, 15)).toEqual([
+      'megapixels', 'width', 'height', 'aspectRatio', 'fileSize',
+      'bpp', 'brightnessAvg', 'brightnessStdevMax',
+      'laplacianStdev', 'laplacianMean', 'laplacianVariance', 'edgeRatio',
+      'dpi', 'isJpeg', 'presetIdx',
+    ]);
+    expect(FEATURE_NAMES[22]).toBe('skewAngle');
+    expect(FEATURE_NAMES[26]).toBe('fftJpegBlockiness');
+    expect(FEATURE_NAMES[29]).toBe('directionalEnergyRatio');
+    expect(FEATURE_NAMES[38]).toBe('channelCount');
+    expect(FEATURE_NAMES[41]).toBe('textCharShapeCV');
   });
 
   it('fast mode: thorough features (15-38) are NaN', () => {

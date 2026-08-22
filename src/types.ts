@@ -1,7 +1,18 @@
 // ── Public types ─────────────────────────────────────────────────
 
-/** Analysis mode */
-export type Mode = 'fast' | 'thorough';
+/**
+ * Analysis mode.
+ *
+ * - `fast` — global statistics on a downscaled copy. Cheap enough for a
+ *   request that a user is waiting on.
+ * - `thorough` — adds FFT, zone, shadow, skew and text-geometry analysis.
+ * - `deep` — adds per-text-line legibility measured on native-resolution
+ *   pixels: how tall the lowercase body is, how thick the strokes are, how far
+ *   the ink separates from the paper. Page-level statistics cannot answer
+ *   "can this be read"; a page can be sharp, level and well lit and still be
+ *   useless because it was captured at 90 DPI. Intended for asynchronous work.
+ */
+export type Mode = 'fast' | 'thorough' | 'deep';
 
 /**
  * Built-in preset names — describes the document type.
@@ -215,6 +226,28 @@ export interface Thresholds {
   laplacianEdgeThreshold: number;
   /** Greyscale threshold for text binarization 0-255 (default: 128) */
   binarizationThreshold: number;
+  /**
+   * Minimum lowercase body height in pixels for OCR (default: 8).
+   *
+   * Measured on 10pt text: 5px at 72 DPI, 7px at 96, 9px at 120, 11px at 150,
+   * 22px at 300. The floor sits just above where strokes stop resolving.
+   * `deep` mode only.
+   */
+  textXHeightMin: number;
+  /** Minimum median stroke thickness in pixels (default: 1.2). `deep` mode only. */
+  textStrokeWidthMin: number;
+  /** Minimum per-line ink-to-paper separation, 0-255 (default: 40). `deep` mode only. */
+  textLineContrastMin: number;
+  /**
+   * Minimum contrast-normalised stroke edge gradient (default: 0.4).
+   *
+   * The per-line blur test. Sharp text measures 0.62-0.94 whether crisp,
+   * JPEG-mangled, rotated, faded or underexposed; Gaussian blur takes it to
+   * 0.30 and below. `deep` mode only.
+   */
+  textStrokeSharpnessMin: number;
+  /** Share of lines allowed to fail legibility before the page is flagged (default: 0.15). */
+  textIllegibleFractionMax: number;
 }
 
 /** Quality check result */
@@ -365,6 +398,8 @@ export type IssueCode =
   | 'inconsistent-char-size'
   | 'distorted-char-shapes'
   | 'analysis-timeout'
+  | 'text-too-small'
+  | 'illegible-text'
   | 'custom';
 
 /** Image metadata extracted during analysis */
@@ -410,6 +445,7 @@ export type AnalyzerName =
   | 'ocrConfidence'
   | 'darkShadow'
   | 'textGeometry'
+  | 'textLines'
   | 'timeout';
 
 // ── Internal types ───────────────────────────────────────────────
@@ -475,6 +511,8 @@ export interface AnalysisContext {
     brightnessDiff: number;
     sharpnessRatio: number;
   };
+  /** Per-text-line legibility metrics — `deep` mode only */
+  textLineMetrics?: import('./text-lines.js').TextLineMetrics;
   /** Measured JPEG 8x8 blockiness — set by analyzeFFTJpegArtifact, read by analyzeCompression */
   jpegBlockiness?: number;
   /** True when `density` came from a trusted source rather than image metadata */

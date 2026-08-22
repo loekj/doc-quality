@@ -43,6 +43,10 @@ ALL_FEATURES = FAST_FEATURES + [
     'zoneSharpness0', 'zoneSharpness1', 'zoneSharpness2', 'zoneSharpness3',
     'channelCount',
     'textBaselineDeviation', 'textCharSizeCV', 'textCharShapeCV',
+    # Deep-mode only — NaN for rows extracted in fast or thorough mode.
+    # XGBoost handles NaN natively, so mixed-mode CSVs train fine.
+    'textLineCount', 'textMedianXHeight', 'textMedianStrokeWidth',
+    'textMedianLineContrast', 'textMedianStrokeSharpness', 'textIllegibleFraction',
 ]
 
 PREFLIGHT_FEATURES = [

@@ -50,5 +50,7 @@ export const ISSUE_GUIDANCE: Record<IssueCode, string> = {
   'inconsistent-char-size': 'Characters vary in size across the document, suggesting the paper is crumpled or folded. Flatten and retake.',
   'distorted-char-shapes': 'Characters appear distorted or warped. Smooth out the document and photograph it on a flat surface.',
   'analysis-timeout': 'The quality check did not finish in time. Please try again, or upload a smaller file.',
+  'text-too-small': 'The text is too small to read reliably. Please move closer, or scan at a higher DPI.',
+  'illegible-text': 'Some lines of text cannot be read. Please retake the photo with better focus and lighting.',
   'custom': 'A quality issue was detected with this image.',
 };

@@ -53,6 +53,8 @@ export type { MagnitudeSpectrum2D } from './fft-core.js';
 export { isPdf, parsePages } from './pdf.js';
 export { detectDocumentBounds } from './boundary.js';
 export { estimateSkewAngle, gradedPenalty } from './analyzers.js';
+export { analyzeTextLines, TEXT_LINE_DEFAULTS } from './text-lines.js';
+export type { TextLine, TextLineMetrics, TextLineThresholds } from './text-lines.js';
 export { analyzePdfContent } from './pdf-content.js';
 export type { PdfPageContent, PdfPageKind, EmbeddedImage } from './pdf-content.js';
 export type { OcrResult } from './ocr.js';
@@ -261,7 +263,7 @@ async function checkImage(
 
   const resolvedPreset = await resolvePreset(buffer, preset, useBoundary, builtinBounds);
   const thresholds = resolveThresholds(resolvedPreset, overrides);
-  const result = await runPipeline(buffer, mode as 'fast' | 'thorough', thresholds, resolvedPreset, useBoundary, penalties, options);
+  const result = await runPipeline(buffer, mode, thresholds, resolvedPreset, useBoundary, penalties, options);
 
   // Attach detected bounds to result (regardless of preset)
   if (builtinBounds && !result.boundary) {

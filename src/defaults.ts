@@ -43,6 +43,11 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   charShapeCVMax: 0.4,
   laplacianEdgeThreshold: 30,
   binarizationThreshold: 128,
+  textXHeightMin: 8,
+  textStrokeWidthMin: 1.2,
+  textLineContrastMin: 40,
+  textStrokeSharpnessMin: 0.4,
+  textIllegibleFractionMax: 0.15,
 };
 
 /** Concrete preset names (excludes 'auto') */
@@ -70,6 +75,8 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
     darkShadowCenterMax: 100, // Receipts naturally have dark edges from surface
     zoneBrightnessMaxDiff: 80, // Receipts have natural gradient from thermal printing
     baselineDeviationMax: 0.03, // Thermal paper curls
+    textLineContrastMin: 30,    // Thermal ink fades — pale but still readable
+    textXHeightMin: 7,          // Receipt type is small by design
   },
 
   /**

@@ -1,6 +1,7 @@
 import type { AnalysisContext, Issue, Thresholds } from './types.js';
 import { highFreqEnergyRatio, countSpectralPeaks, jpegBlockiness } from './fft-core.js';
 import { ISSUE_GUIDANCE } from './guidance.js';
+import { analyzeTextLines } from './text-lines.js';
 
 // ── Severity scaling ─────────────────────────────────────────────
 
@@ -1339,4 +1340,80 @@ export function analyzeFFTJpegArtifact(ctx: AnalysisContext, t: Thresholds): Iss
     threshold: t.fftJpegGridMax,
     penalty: gradedPenalty(0.8, t.fftJpegGridMax > 0 ? blockiness / t.fftJpegGridMax : SEVERITY_CAP),
   };
+}
+
+// ── Text-line legibility (deep mode) ─────────────────────────────
+
+/**
+ * Measure whether the text on the page can actually be read.
+ *
+ * Every other analyzer describes the page. This one describes the words:
+ * how tall the lowercase body is in pixels, how thick the strokes are, and
+ * how far the ink separates from the paper. Those quantities are what OCR
+ * accuracy depends on, and each maps to something a user can do — move
+ * closer, rescan at a higher DPI, hold the camera still, add light.
+ *
+ * Needs native-resolution pixels; the analysis downscale would erase the
+ * detail being measured.
+ */
+export function analyzeTextLegibility(ctx: AnalysisContext, t: Thresholds): Issue[] {
+  const issues: Issue[] = [];
+  const source = ctx.fullResGrey ?? ctx.greyRaw;
+  if (!source) return issues;
+
+  const metrics = analyzeTextLines(
+    source.data,
+    source.width,
+    source.height,
+    ctx.skewAngle ?? 0,
+    {
+      xHeightMin: t.textXHeightMin,
+      strokeWidthMin: t.textStrokeWidthMin,
+      contrastMin: t.textLineContrastMin,
+      strokeSharpnessMin: t.textStrokeSharpnessMin,
+    },
+  );
+  if (!metrics) return issues;
+
+  ctx.textLineMetrics = metrics;
+
+  if (metrics.medianXHeight < t.textXHeightMin) {
+    issues.push({
+      analyzer: 'textLines',
+      code: 'text-too-small',
+      guidance: ISSUE_GUIDANCE['text-too-small'],
+      message:
+        `Text too small to read (median x-height ${metrics.medianXHeight.toFixed(1)}px, ` +
+        `minimum ${t.textXHeightMin}px, across ${metrics.lineCount} lines)`,
+      value: metrics.medianXHeight,
+      threshold: t.textXHeightMin,
+      penalty: gradedPenalty(
+        0.55,
+        metrics.medianXHeight > 0 ? t.textXHeightMin / metrics.medianXHeight : SEVERITY_CAP,
+      ),
+    });
+  }
+
+  if (metrics.illegibleFraction > t.textIllegibleFractionMax) {
+    const illegibleLines = Math.round(metrics.illegibleFraction * metrics.lineCount);
+    issues.push({
+      analyzer: 'textLines',
+      code: 'illegible-text',
+      guidance: ISSUE_GUIDANCE['illegible-text'],
+      message:
+        `${illegibleLines} of ${metrics.lineCount} text lines are not legible ` +
+        `(${(metrics.illegibleFraction * 100).toFixed(0)}%, maximum ` +
+        `${(t.textIllegibleFractionMax * 100).toFixed(0)}%)`,
+      value: metrics.illegibleFraction,
+      threshold: t.textIllegibleFractionMax,
+      penalty: gradedPenalty(
+        0.6,
+        t.textIllegibleFractionMax > 0
+          ? metrics.illegibleFraction / t.textIllegibleFractionMax
+          : SEVERITY_CAP,
+      ),
+    });
+  }
+
+  return issues;
 }

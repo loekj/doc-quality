@@ -26,6 +26,9 @@ export const FEATURE_NAMES: readonly string[] = [
   'zoneSharpness0', 'zoneSharpness1', 'zoneSharpness2', 'zoneSharpness3',
   'channelCount',
   'textBaselineDeviation', 'textCharSizeCV', 'textCharShapeCV',
+  // Deep-mode features (42-47) — NaN unless mode is 'deep'
+  'textLineCount', 'textMedianXHeight', 'textMedianStrokeWidth',
+  'textMedianLineContrast', 'textMedianStrokeSharpness', 'textIllegibleFraction',
 ] as const;
 
 const PRESET_INDEX: Record<string, number> = { document: 0, receipt: 1, card: 2 };
@@ -91,8 +94,8 @@ export function extractFeatures(
   values[13] = isJpeg;
   values[14] = PRESET_INDEX[preset] ?? 0;
 
-  // Thorough-only features (15-41) — remain NaN in fast mode
-  if (mode === 'thorough') {
+  // Thorough-only features (15+) — remain NaN in fast mode
+  if (mode !== 'fast') {
     // 15: foregroundRatio
     values[15] = foregroundRatio ?? NaN;
 
@@ -241,6 +244,17 @@ export function extractFeatures(
 
       // 38: channelCount
       values[38] = ctx.sharpMeta?.channels ?? NaN;
+    }
+
+    // 42-47: per-text-line legibility (deep mode)
+    if (ctx.textLineMetrics) {
+      const tl = ctx.textLineMetrics;
+      values[42] = tl.lineCount;
+      values[43] = tl.medianXHeight;
+      values[44] = tl.medianStrokeWidth;
+      values[45] = tl.medianContrast;
+      values[46] = tl.medianStrokeSharpness;
+      values[47] = tl.illegibleFraction;
     }
 
     // 39-41: text geometry metrics (from textGeometry analyzer)

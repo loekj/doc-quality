@@ -40,6 +40,7 @@ import {
   analyzeZoneQuality,
   analyzeDirectionalBlur,
   analyzeTextGeometry,
+  analyzeTextLegibility,
 } from './analyzers.js';
 import { computeSpectrum2D } from './fft-core.js';
 import { runRegisteredFFTAnalyzers, hasFFTAnalyzers } from './fft.js';
@@ -201,15 +202,17 @@ export async function runPipeline(
   timings.blankPage = performance.now() - t;
 
   // Fast mode has no blockiness measurement, so it runs the bits-per-pixel
-  // check on its own. Thorough mode defers until the block grid is known.
-  if (mode !== 'thorough') {
+  // check on its own. Thorough and deep defer until the block grid is known —
+  // `!== 'thorough'` let deep run it here and again below, reporting it twice.
+  if (mode === 'fast') {
     t = performance.now();
     push(issues, analyzeCompression(ctx, thresholds));
     timings.compression = performance.now() - t;
   }
 
-  // ── Thorough-only checks ─────────────────────────────────────
-  if (mode === 'thorough') {
+  // ── Thorough-only checks (deep is a superset) ────────────────
+  const deep = mode === 'deep';
+  if (mode === 'thorough' || deep) {
     // Edge density (reuses laplacian data — nearly free)
     t = performance.now();
     push(issues, analyzeEdgeDensity(ctx, thresholds));
@@ -280,9 +283,10 @@ export async function runPipeline(
     push(issues, analyzeColorDepth(ctx, thresholds));
     timings.colorDepth = performance.now() - t;
 
-    // Native-resolution greyscale — only for downscaled JPEGs, and only so the
-    // 8x8 block grid survives. Transient: ~12 MB for a 12 MP photo, ~15 ms.
-    if (needsResize && ctx.sharpMeta?.format === 'jpeg') {
+    // Native-resolution greyscale. JPEGs need it so the 8x8 block grid survives
+    // the downscale; deep mode needs it because stroke width and x-height are
+    // exactly the detail a resize destroys. Transient: ~12 MB for a 12 MP photo.
+    if (needsResize && (deep || ctx.sharpMeta?.format === 'jpeg')) {
       try {
         const fullGrey = await sharp(analysisSource)
           .greyscale()
@@ -328,6 +332,13 @@ export async function runPipeline(
     t = performance.now();
     push(issues, analyzeDirectionalBlur(ctx, thresholds));
     timings.directionalBlur = performance.now() - t;
+
+    // Per-text-line legibility — the deep tier's reason to exist.
+    if (deep) {
+      t = performance.now();
+      for (const issue of analyzeTextLegibility(ctx, thresholds)) issues.push(issue);
+      timings.textLines = performance.now() - t;
+    }
 
     // Registered FFT analyzers (if any)
     if (hasFFTAnalyzers()) {

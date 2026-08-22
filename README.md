@@ -105,7 +105,7 @@ console.log(result.timing);   // { totalMs, analyzers: { brightness: 2, sharpnes
 
 ```typescript
 const result = await checkQuality(buffer, {
-  mode: 'thorough',           // 'fast' (default) or 'thorough' (enables FFT + zone analysis)
+  mode: 'thorough',           // 'fast' (default), 'thorough' (FFT + zone), or 'deep' (per-text-line)
   preset: 'receipt',           // 'auto' (default), 'document', 'receipt', 'card'
   timeout: 5000,               // ms, default 10000. Set to 0 to disable.
   thresholds: {                // Override any threshold (merged on top of preset)
@@ -540,6 +540,46 @@ const r2 = await checkQuality(buf2, { ocrConfidence: true, ocrWorker: worker });
 await worker.terminate();
 ```
 
+
+## Modes
+
+Three tiers, meant for three places in a pipeline.
+
+| Mode | Typical latency | What it adds | Where it belongs |
+| --- | --- | --- | --- |
+| `fast` | ~50 ms | Resolution, file size, brightness, sharpness, DPI, blank page, compression | A request someone is waiting on |
+| `thorough` | ~350 ms | FFT blur/noise, zone uniformity, shadow, skew, text geometry, JPEG artifacts | A request someone is waiting on, when latency allows |
+| `deep` | ~380 ms | Per-text-line legibility on native-resolution pixels | Background or asynchronous work |
+
+`deep` exists because page-level statistics cannot answer the question that
+matters before OCR: *can each line actually be read?* A page captured at 96 DPI
+is clean by every page-level measure — correctly exposed, level, sharp, no
+noise — and still unreadable. `fast` and `thorough` both pass it.
+
+```ts
+const result = await checkQuality(buffer, { mode: 'deep' });
+// Text too small to read (median x-height 7.0px, minimum 8px, across 46 lines)
+// 34 of 46 text lines are not legible (74%, maximum 15%)
+```
+
+It measures, per line: the height of the lowercase body in pixels, stroke
+thickness, ink-to-paper separation, and a contrast-normalised edge gradient.
+That last one is the blur test — normalising by the line's own contrast keeps
+pale-but-crisp text apart from soft text, which a raw gradient conflates.
+
+x-height is the headline number, because it maps directly to an instruction:
+
+| Capture DPI | x-height of 10pt text | Verdict |
+| --- | --- | --- |
+| 72 | 5 px | unreadable |
+| 96 | 7 px | unreadable |
+| 120 | 9 px | marginal |
+| 150 | 11 px | fine |
+| 300 | 22 px | comfortable |
+
+`deep` costs only ~30 ms more than `thorough` — it shares the same decode and
+FFT work. The tier is about capability, not time spent.
+
 ## CLI
 
 ```bash
@@ -547,6 +587,7 @@ npx doc-quality photo.jpg
 # Output: PASS (score: 0.92, preset: document)
 
 npx doc-quality scan.pdf --pages all --mode thorough
+npx doc-quality scan.jpg --mode deep
 # Output: FAIL (score: 0.35, preset: document)
 #   Page 1: blurry — Laplacian stdev 8.2 is below minimum 15
 #   Page 3: too-dark — Mean brightness 32 is below minimum 50
@@ -555,7 +596,7 @@ npx doc-quality photo.jpg --json
 # { "pass": true, "score": 0.92, ... }
 ```
 
-**Options:** `-m, --mode` (fast|thorough), `-p, --pages` (1, 1-5, all), `--preset` (auto|document|receipt|card), `-j, --json`, `-h, --help`
+**Options:** `-m, --mode` (fast|thorough|deep), `-p, --pages` (1, 1-5, all), `--preset` (auto|document|receipt|card), `-j, --json`, `-h, --help`
 
 **Exit codes:** 0 = pass, 1 = fail or error.
 

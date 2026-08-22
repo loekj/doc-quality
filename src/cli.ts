@@ -9,7 +9,7 @@ Usage:
   doc-quality <file> [options]
 
 Options:
-  -m, --mode <mode>      Analysis mode: fast | thorough (default: fast)
+  -m, --mode <mode>      Analysis mode: fast | thorough | deep (default: fast)
   -p, --pages <pages>    Pages to analyze for PDFs: 1, 1-5, all (default: 1)
       --preset <preset>  Threshold preset: auto | document | receipt | card (default: auto)
   -j, --json             Output JSON instead of human-readable text
@@ -18,6 +18,7 @@ Options:
 Examples:
   doc-quality scan.png
   doc-quality invoice.pdf --mode thorough --pages all
+  doc-quality scan.jpg --mode deep
   doc-quality receipt.jpg --preset receipt --json
 `.trim();
 
