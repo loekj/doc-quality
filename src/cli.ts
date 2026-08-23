@@ -10,6 +10,8 @@ Usage:
 
 Options:
   -m, --mode <mode>      Analysis mode: fast | thorough | deep (default: fast)
+      --no-crop          Grade the whole frame, not just the detected document
+      --pdf <strategy>   PDF handling: content (default) | render
   -p, --pages <pages>    Pages to analyze for PDFs: 1, 1-5, all (default: 1)
       --preset <preset>  Threshold preset: auto | document | receipt | card (default: auto)
   -j, --json             Output JSON instead of human-readable text
@@ -27,6 +29,8 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: {
       mode: { type: 'string', short: 'm', default: 'fast' },
+      'no-crop': { type: 'boolean', default: false },
+      pdf: { type: 'string', default: 'content' },
       pages: { type: 'string', short: 'p', default: '1' },
       preset: { type: 'string', default: 'auto' },
       json: { type: 'boolean', short: 'j', default: false },
@@ -48,6 +52,8 @@ async function main(): Promise<void> {
 
   const result = await checkQuality(file, {
     mode: values.mode as Mode,
+    cropToBounds: !values['no-crop'],
+    pdfStrategy: values.pdf as 'content' | 'render',
     preset: values.preset as PresetName,
     pages: values.pages,
   });

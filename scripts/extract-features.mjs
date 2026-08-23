@@ -49,6 +49,8 @@ const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '
 const args = process.argv.slice(2);
 const inputDir = getArg(args, '--input-dir') || 'test/fixtures/real';
 const outputDir = getArg(args, '--output-dir') || 'training';
+/** Skip images with no human score instead of falling back to a tier default. */
+const labeledOnly = args.includes('--labeled-only');
 
 function getArg(args, name) {
   const idx = args.indexOf(name);
@@ -89,6 +91,8 @@ async function main() {
 
   // Single unified dataset — preset is just a feature, not a separate model
   const allRows = [];
+  let humanCount = 0;
+  let syntheticCount = 0;
 
   for (const [dirName, preset] of Object.entries(PRESET_MAP)) {
     const presetDir = join(inputDir, dirName);
@@ -111,12 +115,23 @@ async function main() {
 
         // Priority: main labels.json score > per-tier override > tier default
         const mainEntry = mainLabels[relPath];
-        const label = (mainEntry && mainEntry.score != null)
-          ? mainEntry.score
-          : labels[filename] ?? defaultLabel;
+        const humanScore = (mainEntry && mainEntry.score != null) ? mainEntry.score : labels[filename];
+        const label = humanScore ?? defaultLabel;
 
         // Skip unsorted images that have no explicit label
         if (label == null) continue;
+
+        // A tier default is a guess derived from which folder a file sits in,
+        // not a judgement anyone made about the image. Mixing guesses into the
+        // target caps what the model can learn, so they are counted and
+        // reported, and --labeled-only drops them.
+        const isSynthetic = humanScore == null;
+        if (isSynthetic) {
+          syntheticCount++;
+          if (labeledOnly) continue;
+        } else {
+          humanCount++;
+        }
 
         try {
           const buffer = await readFile(imagePath);
@@ -126,21 +141,32 @@ async function main() {
           // it left columns 42-47 empty for the whole dataset.
           for (const mode of MODES) {
             let featureVec = null;
-            await checkQuality(buffer, {
+            let resolvedPreset = preset;
+            // preset: 'auto' so presetIdx is whatever production will actually
+            // compute. Forcing it from the directory trained feature 14 on a
+            // value inference never produces, for any image auto reads
+            // differently — a training/serving skew on a feature the model
+            // splits on.
+            const result = await checkQuality(buffer, {
               mode,
-              preset,
+              preset: 'auto',
               scorer: (features) => {
                 featureVec = features;
                 return 1.0; // dummy score
               },
             });
+            resolvedPreset = result.preset;
 
             if (featureVec) {
               const row = {
                 path: imagePath,
-                preset,
+                // What the directory says this is, kept for analysis. Not a
+                // feature — `presetIdx` carries the value the model sees.
+                category: preset,
+                preset: resolvedPreset,
                 mode,
                 label,
+                labelSource: isSynthetic ? 'tier-default' : 'human',
                 ...Object.fromEntries(featureVec.names.map((n, i) => [n, featureVec.values[i]])),
               };
               allRows.push(row);
@@ -160,9 +186,10 @@ async function main() {
 
   // Write single unified CSV
   const featureNames = FEATURE_NAMES;
-  const header = ['path', 'preset', 'mode', 'label', ...featureNames].join(',');
+  const meta = ['path', 'category', 'preset', 'mode', 'label', 'labelSource'];
+  const header = [...meta, ...featureNames].join(',');
   const csvRows = allRows.map(row =>
-    ['path', 'preset', 'mode', 'label', ...featureNames]
+    [...meta, ...featureNames]
       .map(col => {
         const val = row[col];
         if (typeof val === 'string') return `"${val.replace(/"/g, '""')}"`;
@@ -175,7 +202,15 @@ async function main() {
   const csv = [header, ...csvRows].join('\n');
   const outPath = join(outputDir, 'features.csv');
   await writeFile(outPath, csv);
-  console.log(`\nWrote ${allRows.length} rows to ${outPath}`);
+  console.log(`\nWrote ${allRows.length} rows (${MODES.length} per image) to ${outPath}`);
+  console.log(`  images with a human score : ${humanCount}`);
+  if (syntheticCount > 0 && !labeledOnly) {
+    console.log(`  images using a tier default: ${syntheticCount}  <-- guessed from the folder name`);
+    console.log('  Those labels are not judgements anyone made about the image.');
+    console.log('  Re-run with --labeled-only to train on human scores alone.');
+  } else if (syntheticCount > 0) {
+    console.log(`  images skipped (no human score): ${syntheticCount}`);
+  }
 }
 
 main().catch(err => {

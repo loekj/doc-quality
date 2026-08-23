@@ -795,6 +795,35 @@ npm install doc-quality
 
 All peer dependencies are optional. The preflight subpath (`doc-quality/preflight`) has zero native dependencies and works without sharp installed. The main entry point throws at runtime if sharp is not available.
 
+## Training Your Own Model
+
+```bash
+node scripts/extract-features.mjs --labeled-only   # images -> training/features.csv
+python scripts/feature-report.py                   # which features actually separate good from bad
+python scripts/train-model.py --labeled-only       # -> models/quality-models.json
+```
+
+Features are extracted in all three modes, so one image produces three rows and
+the bundle gets a model per mode. `preset` is resolved with `'auto'` during
+extraction, the same way production resolves it, so `presetIdx` cannot disagree
+between training and serving.
+
+Images without a human score fall back to a label guessed from their folder.
+Those are counted separately and `--labeled-only` drops them; a guessed target
+caps what the model can learn from the real ones.
+
+`feature-report.py` ranks every feature by how well it separates good from bad,
+and gives a verdict on the four signals demoted to advisory. Demoting them was a
+judgement about *gating* — they fire on provably good documents — not about
+whether they carry signal. It also suggests a cut for each threshold-backed
+feature. Both need roughly 30 images per class before they mean anything, and
+the script says so rather than presenting an overfitted AUC as fact.
+
+**Feature order is load-bearing.** Exported models address features by index, so
+a tree holding `split: 8` reads whatever sits at position 8 of the runtime
+vector. Add features to the end of `FEATURE_NAMES` and `ALL_FEATURES`, never
+into the middle. `test/model-contract.test.ts` enforces this.
+
 ## Training Dataset
 
 The scoring model is trained on the [doc-quality-dataset](https://zenodo.org/records/18907841?token=eyJhbGciOiJIUzUxMiJ9.eyJpZCI6Ijk0OTM1NzhjLTZjMDUtNDY2OC1iMzdjLTYxYzVjOGVkYmY3YiIsImRhdGEiOnt9LCJyYW5kb20iOiI0YjczMTdiYTAyZWZhZjA5ODYyMWY5NDQ5MDUwY2ZkYiJ9.1Fxp-V0ZsJTzv_h4dxS7wt-AlvN9SEaEjWKwpunSsHuBJTAnyTQOmlS93bcNyJRuS5Zmvv3vcXtl0_sAxRXEog) — 5,000+ labeled document, receipt, card, and photo images across quality tiers (very-good, good, bad, very-bad), including synthetically degraded variants.

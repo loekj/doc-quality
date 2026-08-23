@@ -205,6 +205,8 @@ def main():
     parser.add_argument('--output', default='models/quality-models.json', help='Output model bundle')
     parser.add_argument('--test-size', type=float, default=0.15, help='Fraction held out for testing (default: 0.15)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for train/test split')
+    parser.add_argument('--labeled-only', action='store_true',
+                        help='Train only on rows a human scored, dropping tier-default guesses')
     args = parser.parse_args()
 
     input_dir = Path(args.input_dir)
@@ -239,6 +241,24 @@ def main():
     if missing:
         print(f"CSV missing required columns: {missing}")
         sys.exit(1)
+
+    # Tier defaults are guessed from a folder name, not judgements anyone made
+    # about the image. Mixing them into the target caps what the model can
+    # learn, so report the split and allow dropping them.
+    if 'labelSource' in df.columns:
+        human = int((df['labelSource'] == 'human').sum())
+        guessed = len(df) - human
+        print(f"Label sources: {human} human, {guessed} tier-default")
+        if args.labeled_only:
+            df = df[df['labelSource'] == 'human']
+            print(f"  --labeled-only: kept {len(df)} rows")
+        elif guessed > 0:
+            print("  Tier defaults are included. Re-run with --labeled-only to exclude them.")
+        if len(df) == 0:
+            print("No rows left to train on.")
+            sys.exit(1)
+    else:
+        print("Note: no labelSource column — re-run extract-features.mjs to record label provenance.")
 
     missing_features = [f for f in ALL_FEATURES if f not in df.columns]
     if missing_features:
