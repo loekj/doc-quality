@@ -492,9 +492,14 @@ export async function runPipeline(
     // but they do not lower the score — they fire on good documents.
     score = 1.0;
     for (const issue of issues) {
-      const effectivePenalty = penalties?.[issue.analyzer] ?? issue.penalty;
+      const override = penalties?.[issue.analyzer];
+      const effectivePenalty = override ?? issue.penalty;
       issue.penalty = effectivePenalty;
-      if (issue.severity === 'advisory') continue;
+      // Naming an analyzer in `penalties` is an explicit request for it to
+      // count, so it promotes an advisory issue into a scoring one. Ignoring
+      // the override instead made the option a silent no-op for exactly the
+      // four analyzers someone would most want to re-enable.
+      if (issue.severity === 'advisory' && override === undefined) continue;
       score *= effectivePenalty;
     }
   } else {

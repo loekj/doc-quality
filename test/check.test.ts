@@ -832,3 +832,49 @@ describe('colour space normalisation', () => {
     expect(grey.score).toBe(srgb.score);
   }, 90_000);
 });
+
+describe('penalty overrides and advisory issues', () => {
+  async function textPage(): Promise<Buffer> {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="2200">' +
+      '<rect width="1700" height="2200" fill="#fbfaf6"/>' +
+      Array.from({ length: 40 }, (_, i) =>
+        `<text x="90" y="${130 + i * 48}" font-size="25" font-family="Helvetica" fill="#1a1a1a">` +
+        `Item ${i} description of goods, qty 3, unit 41.20</text>`,
+      ).join('') + '</svg>';
+    return sharp(Buffer.from(svg)).flatten({ background: '#fbfaf6' }).jpeg({ quality: 90 }).toBuffer();
+  }
+
+  it('leaves advisory issues out of the score by default', async () => {
+    const result = await checkQuality(await textPage(), {
+      mode: 'thorough', preset: 'document', timeout: 0,
+    });
+    expect(result.issues.some((i) => i.severity === 'advisory')).toBe(true);
+    expect(result.score).toBe(1);
+  }, 60_000);
+
+  it('promotes an advisory issue when its penalty is explicitly overridden', async () => {
+    // Ignoring the override made `penalties` a silent no-op for exactly the
+    // analyzers someone would most want to turn back on.
+    const buf = await textPage();
+    const base = await checkQuality(buf, { mode: 'thorough', preset: 'document', timeout: 0 });
+    const advisory = base.issues.find((i) => i.severity === 'advisory');
+    expect(advisory).toBeDefined();
+
+    const overridden = await checkQuality(buf, {
+      mode: 'thorough', preset: 'document', timeout: 0,
+      penalties: { [advisory!.analyzer]: 0.2 },
+    });
+    expect(overridden.score).toBeLessThan(base.score);
+    expect(overridden.issues.find((i) => i.analyzer === advisory!.analyzer)!.penalty).toBe(0.2);
+  }, 60_000);
+
+  it('still applies overrides to ordinary issues', async () => {
+    const dark = await sharp({
+      create: { width: 900, height: 1200, channels: 3, background: { r: 20, g: 20, b: 20 } },
+    }).jpeg().toBuffer();
+    const strict = await checkQuality(dark, { mode: 'fast', timeout: 0, penalties: { brightness: 0.1 } });
+    const lenient = await checkQuality(dark, { mode: 'fast', timeout: 0, penalties: { brightness: 0.9 } });
+    expect(strict.score).toBeLessThan(lenient.score);
+  }, 60_000);
+});

@@ -7,6 +7,7 @@ import { detectDocumentBounds } from './boundary.js';
 import type { ConcretePreset } from './defaults.js';
 import type { QualityOptions, QualityResult, Issue, PageResult, AnalyzerName } from './types.js';
 import { isPdf, parsePages, renderPdfPages } from './pdf.js';
+import type { RenderedPage } from './pdf.js';
 import { ISSUE_GUIDANCE } from './guidance.js';
 import { analyzePdfContent } from './pdf-content.js';
 import type { PdfPageContent, PdfPageKind, EmbeddedImage } from './pdf-content.js';
@@ -68,6 +69,8 @@ export { extractPreflightFeatures, PREFLIGHT_FEATURE_NAMES } from './preflight-f
 export type { PreflightFeatureVector } from './preflight-features.js';
 export { loadModels, loadModelSync, loadPreflightModel, evaluateModel } from './tree-eval.js';
 export type { XGBModel, ModelBundle } from './tree-eval.js';
+
+type RenderedPages = RenderedPage[];
 
 /** Default timeout in ms */
 const DEFAULT_TIMEOUT = 10_000;
@@ -313,9 +316,14 @@ async function checkPdf(
   // Preferred path: classify each page and grade its embedded images at native
   // resolution. Falls through to rasterising if pdfjs is missing or the file
   // cannot be parsed — a malformed PDF should still get a best-effort answer.
+  // Parsing and extraction happen before any grading, so they need their own
+  // deadline: the per-page grading timeouts below cannot help with a file that
+  // makes the parser hang.
+  const pageBudget = options?.timeout ?? DEFAULT_TIMEOUT;
+
   if (pdfStrategy === 'content') {
     try {
-      const contents = await analyzePdfContent(buffer, parsed);
+      const contents = await analyzePdfContent(buffer, parsed, pageBudget);
       if (contents.length > 0) {
         return await checkPdfByContent(
           buffer, contents, mode, preset, overrides, useBoundary,
@@ -327,7 +335,26 @@ async function checkPdf(
     }
   }
 
-  const rendered = await renderPdfPages(buffer, parsed);
+  // null distinguishes "rendering ran out of time" from "this PDF has no pages".
+  // Collapsing the two would hand a timed-out file the empty-document result,
+  // which passes with a perfect score.
+  const rendered = await withTimeout(
+    async () => (await renderPdfPages(buffer, parsed)) as RenderedPages | null,
+    pageBudget,
+    () => null,
+  );
+
+  if (rendered === null) {
+    return {
+      pass: false,
+      score: 0,
+      confidence: 'low' as const,
+      preset: preset === 'auto' ? 'document' : (preset as ConcretePreset),
+      issues: [timeoutIssue(pageBudget)],
+      metadata: { width: 0, height: 0, megapixels: 0, format: 'pdf', fileSize: buffer.length },
+      timing: { totalMs: Math.round(performance.now() - t0), analyzers: {} },
+    };
+  }
 
   if (rendered.length === 0) {
     return {

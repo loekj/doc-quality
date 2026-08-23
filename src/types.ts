@@ -69,6 +69,11 @@ export interface QualityOptions {
   /**
    * Override the default penalty for specific analyzers.
    * Values should be between 0 and 1 (score multiplier).
+   *
+   * Naming an analyzer here also promotes its `advisory` issues into scoring
+   * ones: an explicit override is a request for that analyzer to count. This is
+   * the way to re-enable `colorDepth`, `fftMoire`, `directionalBlur` or
+   * `textGeometry`'s shape check if your corpus wants them as gates.
    */
   penalties?: Partial<Record<AnalyzerName, number>>;
   /**

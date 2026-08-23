@@ -124,7 +124,8 @@ for (const issue of result.issues) {
 ```
 
 `advisory` issues are reported and fed to the feature vector but never lower the
-score. Some signals fire on perfectly good documents -- printed text is periodic
+score. Naming one in `penalties` promotes it back into scoring -- an explicit
+override is a request for that analyzer to count. Some signals fire on perfectly good documents -- printed text is periodic
 and anisotropic, so a clean page looks like moire and directional blur to a
 global detector -- and a clean born-digital PDF scored 0.44 when they gated it.
 `grayscale-in-color`, `fft-moire`, `directional-blur` and `distorted-char-shapes`
@@ -144,6 +145,7 @@ const result = await checkQuality(buffer, {
   },
   penalties: {                 // Override score penalty per analyzer (0-1 multiplier)
     brightness: 0.8,           // Less harsh penalty for brightness issues
+    fftMoire: 0.7,             // Also promotes an advisory analyzer into scoring
   },
   detectBounds: true,          // Built-in document boundary detection (default: true)
   boundaryDetector: myFn,      // Custom boundary detector (replaces built-in)

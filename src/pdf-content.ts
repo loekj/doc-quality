@@ -248,6 +248,29 @@ interface DecodedImage {
 const OBJECT_RESOLVE_TIMEOUT_MS = 10_000;
 
 /**
+ * Bound a promise, resolving to `fallback` if it takes too long.
+ *
+ * Parsing and extraction sit outside the grading deadline, so without this a
+ * file that makes pdf.js hang would hang the whole call — the per-page grading
+ * timeouts never get a chance to run because they come afterwards.
+ */
+function withDeadline<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  if (ms <= 0) return work;
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const finish = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(fallback), ms);
+    timer.unref?.();
+    work.then(finish, () => finish(fallback));
+  });
+}
+
+/**
  * Read a decoded image out of `page.objs`.
  *
  * The synchronous form throws "Requesting object that isn't resolved yet" for
@@ -301,16 +324,22 @@ function multiply(a: Matrix, b: Matrix): Matrix {
 export async function analyzePdfContent(
   buffer: Buffer,
   pages: number[] | 'all',
+  pageTimeoutMs = 0,
 ): Promise<PdfPageContent[]> {
   const pdfjs = await loadPdfjs();
   const jpegStreams = recoverJpegStreams(buffer);
 
-  const doc = await pdfjs.getDocument({
+  const loading = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     isEvalSupported: false,
     // Font data is irrelevant here — we only need text length and image placement.
     useSystemFonts: false,
-  }).promise;
+  });
+  const doc = await withDeadline(loading.promise, pageTimeoutMs, null);
+  if (!doc) {
+    await loading.destroy().catch(() => {});
+    throw new Error('PDF parsing did not finish within the timeout');
+  }
 
   try {
     const wanted =
@@ -321,7 +350,14 @@ export async function analyzePdfContent(
     const results: PdfPageContent[] = [];
 
     for (const pageNum of wanted) {
-      results.push(await readPage(pdfjs, doc, pageNum, jpegStreams));
+      // Per page, so one unreadable page cannot stall the rest of the document.
+      const empty: PdfPageContent = {
+        page: pageNum, kind: 'empty', textChars: 0, images: [],
+        imageCoverage: 0, pageWidthPt: 0, pageHeightPt: 0,
+      };
+      results.push(
+        await withDeadline(readPage(pdfjs, doc, pageNum, jpegStreams), pageTimeoutMs, empty),
+      );
     }
     return results;
   } finally {
