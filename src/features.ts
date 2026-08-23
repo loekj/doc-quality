@@ -155,45 +155,14 @@ export function extractFeatures(
       }
       // If topLen or botLen is 0, values[17] stays NaN — continue with other features
 
-      // 18-20: shadow edge/center diff
-      const stripSize = Math.max(1, Math.floor(Math.min(gw, gh) * 0.1));
-      let edgeSum = 0, edgeCount = 0;
-      for (let y = 0; y < gh; y++) {
-        for (let x = 0; x < gw; x++) {
-          if (y < stripSize || y >= gh - stripSize || x < stripSize || x >= gw - stripSize) {
-            edgeSum += grey[y * gw + x];
-            edgeCount++;
-          }
-        }
+      // 18-21: shadow means and background p90, from the analyzers rather than
+      // recomputed — three copies of this walk is how earlier maths drifted.
+      if (ctx.shadowMetrics) {
+        values[18] = ctx.shadowMetrics.diff;
+        values[19] = ctx.shadowMetrics.centerMean;
+        values[20] = ctx.shadowMetrics.edgeMean;
       }
-      const cx0 = Math.floor(gw * 0.3);
-      const cx1 = Math.floor(gw * 0.7);
-      const cy0 = Math.floor(gh * 0.3);
-      const cy1 = Math.floor(gh * 0.7);
-      let centerSum = 0, centerCount = 0;
-      for (let y = cy0; y < cy1; y++) {
-        for (let x = cx0; x < cx1; x++) {
-          centerSum += grey[y * gw + x];
-          centerCount++;
-        }
-      }
-      if (edgeCount > 0 && centerCount > 0) {
-        const edgeMean = edgeSum / edgeCount;
-        const centerMean = centerSum / centerCount;
-        values[18] = centerMean - edgeMean;
-        values[19] = centerMean;
-        values[20] = edgeMean;
-      }
-
-      // 21: backgroundP90
-      const hist = new Uint32Array(256);
-      for (let i = 0; i < grey.length; i++) hist[grey[i]]++;
-      const target = Math.floor(grey.length * 0.9);
-      let cumul = 0;
-      for (let b = 0; b < 256; b++) {
-        cumul += hist[b];
-        if (cumul >= target) { values[21] = b; break; }
-      }
+      if (ctx.backgroundP90 !== undefined) values[21] = ctx.backgroundP90;
 
       // 22: skewAngle — projection profile (shared with analyzeSkew, computed once)
       const skewSigned = ctx.skewAngle ?? estimateSkewAngle(grey, gw, gh);

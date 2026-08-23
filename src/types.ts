@@ -530,6 +530,22 @@ export interface AnalysisContext {
     height: number;
   };
   /**
+   * Edge-versus-centre brightness, computed once and shared.
+   *
+   * Both shadow analyzers and feature extraction were each walking the whole
+   * greyscale buffer to derive the same three numbers — the identical maths
+   * written out three times, which is how the skew estimator and the
+   * directional-blur sector index drifted from their analyzers.
+   */
+  shadowMetrics?: {
+    edgeMean: number;
+    centerMean: number;
+    /** centerMean - edgeMean; positive when the edges are darker. */
+    diff: number;
+  };
+  /** 90th-percentile greyscale brightness — the paper's own tone. */
+  backgroundP90?: number;
+  /**
    * Per-quadrant zone metrics, computed once by analyzeZoneQuality.
    *
    * Feature extraction reads these rather than recomputing them. Duplicating

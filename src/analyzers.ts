@@ -321,27 +321,31 @@ export function analyzeCompression(ctx: AnalysisContext, t: Thresholds): Issue |
   };
 }
 
-// ── Shadow detection (dark edges vs center) ──────────────────────
-
-export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null {
+/**
+ * Mean brightness of the outer 10% frame against the middle 40% box.
+ *
+ * Computed once per image and cached on the context. Both shadow analyzers and
+ * feature extraction need exactly these numbers.
+ */
+function shadowMetrics(ctx: AnalysisContext): { edgeMean: number; centerMean: number; diff: number } | null {
+  if (ctx.shadowMetrics) return ctx.shadowMetrics;
   if (!ctx.greyRaw || ctx.greyRaw.height < 20 || ctx.greyRaw.width < 20) return null;
 
   const { data, width, height } = ctx.greyRaw;
   const stripSize = Math.max(1, Math.floor(Math.min(width, height) * 0.1));
 
-  // Average brightness of 10% edge strips (top, bottom, left, right)
   let edgeSum = 0;
   let edgeCount = 0;
   for (let y = 0; y < height; y++) {
+    const inEdgeRow = y < stripSize || y >= height - stripSize;
+    const row = y * width;
     for (let x = 0; x < width; x++) {
-      if (y < stripSize || y >= height - stripSize || x < stripSize || x >= width - stripSize) {
-        edgeSum += data[y * width + x];
-        edgeCount++;
-      }
+      if (!inEdgeRow && x >= stripSize && x < width - stripSize) continue;
+      edgeSum += data[row + x];
+      edgeCount++;
     }
   }
 
-  // Average brightness of center region
   const cx0 = Math.floor(width * 0.3);
   const cx1 = Math.floor(width * 0.7);
   const cy0 = Math.floor(height * 0.3);
@@ -349,8 +353,9 @@ export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null
   let centerSum = 0;
   let centerCount = 0;
   for (let y = cy0; y < cy1; y++) {
+    const row = y * width;
     for (let x = cx0; x < cx1; x++) {
-      centerSum += data[y * width + x];
+      centerSum += data[row + x];
       centerCount++;
     }
   }
@@ -359,16 +364,45 @@ export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null
 
   const edgeMean = edgeSum / edgeCount;
   const centerMean = centerSum / centerCount;
-  const diff = centerMean - edgeMean; // Positive = edges darker than center
+  ctx.shadowMetrics = { edgeMean, centerMean, diff: centerMean - edgeMean };
+  return ctx.shadowMetrics;
+}
 
-  if (diff <= t.shadowBrightnessDiff) return null;
+/** 90th-percentile greyscale brightness, computed once and cached. */
+export function backgroundP90(ctx: AnalysisContext): number | null {
+  if (ctx.backgroundP90 !== undefined) return ctx.backgroundP90;
+  if (!ctx.greyRaw || ctx.greyRaw.width < 20 || ctx.greyRaw.height < 20) return null;
+
+  const { data } = ctx.greyRaw;
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < data.length; i++) hist[data[i]]++;
+
+  const target = Math.floor(data.length * 0.9);
+  let cumulative = 0;
+  for (let value = 0; value < 256; value++) {
+    cumulative += hist[value];
+    if (cumulative >= target) {
+      ctx.backgroundP90 = value;
+      return value;
+    }
+  }
+  ctx.backgroundP90 = 255;
+  return 255;
+}
+
+// ── Shadow detection (dark edges vs center) ──────────────────────
+
+export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null {
+  const metrics = shadowMetrics(ctx);
+  if (!metrics) return null;
+  if (metrics.diff <= t.shadowBrightnessDiff) return null;
 
   return {
     analyzer: 'shadow',
     code: 'shadow-on-edges',
     guidance: ISSUE_GUIDANCE['shadow-on-edges'],
-    message: `Shadow detected at edges (brightness diff ${diff.toFixed(0)}, max ${t.shadowBrightnessDiff})`,
-    value: diff,
+    message: `Shadow detected at edges (brightness diff ${metrics.diff.toFixed(0)}, max ${t.shadowBrightnessDiff})`,
+    value: metrics.diff,
     threshold: t.shadowBrightnessDiff,
     penalty: 0.7,
   };
@@ -666,22 +700,8 @@ export function analyzeFFTMoire(ctx: AnalysisContext, t: Thresholds): Issue | nu
  * Fires when even the brightest areas are dim, indicating poor lighting.
  */
 export function analyzeDimBackground(ctx: AnalysisContext, t: Thresholds): Issue | null {
-  if (!ctx.greyRaw || ctx.greyRaw.width < 20 || ctx.greyRaw.height < 20) return null;
-
-  const { data } = ctx.greyRaw;
-
-  // Build histogram to find p90
-  const hist = new Uint32Array(256);
-  for (let i = 0; i < data.length; i++) hist[data[i]]++;
-
-  const target = Math.floor(data.length * 0.9);
-  let cumul = 0;
-  let p90 = 0;
-  for (let i = 0; i < 256; i++) {
-    cumul += hist[i];
-    if (cumul >= target) { p90 = i; break; }
-  }
-
+  const p90 = backgroundP90(ctx);
+  if (p90 === null) return null;
   if (p90 >= t.backgroundP90Min) return null;
 
   return {
@@ -702,50 +722,20 @@ export function analyzeDimBackground(ctx: AnalysisContext, t: Thresholds): Issue
  * also dim (< 150), indicating the entire document is poorly lit with uneven shadow.
  */
 export function analyzeDarkShadow(ctx: AnalysisContext, t: Thresholds): Issue | null {
-  if (!ctx.greyRaw || ctx.greyRaw.height < 20 || ctx.greyRaw.width < 20) return null;
+  const metrics = shadowMetrics(ctx);
+  if (!metrics) return null;
 
-  const { data, width, height } = ctx.greyRaw;
-  const stripSize = Math.max(1, Math.floor(Math.min(width, height) * 0.1));
-
-  let edgeSum = 0;
-  let edgeCount = 0;
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (y < stripSize || y >= height - stripSize || x < stripSize || x >= width - stripSize) {
-        edgeSum += data[y * width + x];
-        edgeCount++;
-      }
-    }
-  }
-
-  const cx0 = Math.floor(width * 0.3);
-  const cx1 = Math.floor(width * 0.7);
-  const cy0 = Math.floor(height * 0.3);
-  const cy1 = Math.floor(height * 0.7);
-  let centerSum = 0;
-  let centerCount = 0;
-  for (let y = cy0; y < cy1; y++) {
-    for (let x = cx0; x < cx1; x++) {
-      centerSum += data[y * width + x];
-      centerCount++;
-    }
-  }
-
-  if (edgeCount === 0 || centerCount === 0) return null;
-
-  const centerMean = centerSum / centerCount;
-  const edgeMean = edgeSum / edgeCount;
-  const diff = centerMean - edgeMean;
-
-  // Compound check: moderate shadow + dim center content area
-  if (centerMean >= t.darkShadowCenterMax || diff <= t.darkShadowDiffMin) return null;
+  // Compound check: moderate shadow over a centre that is itself dim.
+  if (metrics.centerMean >= t.darkShadowCenterMax || metrics.diff <= t.darkShadowDiffMin) return null;
 
   return {
     analyzer: 'shadow',
     code: 'dark-shadow',
     guidance: ISSUE_GUIDANCE['dark-shadow'],
-    message: `Dark shadow on dim document (center brightness ${centerMean.toFixed(0)}, edge-center diff ${diff.toFixed(0)})`,
-    value: diff,
+    message:
+      `Dark shadow on dim document (center brightness ${metrics.centerMean.toFixed(0)}, ` +
+      `edge-center diff ${metrics.diff.toFixed(0)})`,
+    value: metrics.diff,
     threshold: t.darkShadowDiffMin,
     penalty: 0.65,
   };
