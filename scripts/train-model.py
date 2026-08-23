@@ -24,7 +24,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
 
-# Feature names matching src/features.ts
+# Feature names matching src/features.ts.
+#
+# ORDER IS LOAD-BEARING. Exported models address features by index — a tree node
+# holding `split: 8` reads whatever sits at position 8 of the runtime vector. The
+# fast model is evaluated against the full runtime vector, so FAST_FEATURES must
+# stay exactly positions 0-14 of FEATURE_NAMES. Add new features to the end of
+# ALL_FEATURES, never into the middle, and never to FAST_FEATURES.
 FAST_FEATURES = [
     'megapixels', 'width', 'height', 'aspectRatio', 'fileSize',
     'bpp', 'brightnessAvg', 'brightnessStdevMax',
@@ -47,6 +53,9 @@ ALL_FEATURES = FAST_FEATURES + [
     # XGBoost handles NaN natively, so mixed-mode CSVs train fine.
     'textLineCount', 'textMedianXHeight', 'textMedianStrokeWidth',
     'textMedianLineContrast', 'textMedianStrokeSharpness', 'textIllegibleFraction',
+    # Signed Laplacian — thorough and deep only; NaN for fast-mode rows.
+    'laplacianSignedStdev', 'laplacianSignedMeanAbs',
+    'laplacianSignedEdgeRatio', 'laplacianSaturationRatio',
 ]
 
 PREFLIGHT_FEATURES = [

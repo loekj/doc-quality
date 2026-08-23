@@ -471,6 +471,8 @@ export interface AnalysisContext {
     edgeCount: number;
     length: number;
   };
+  /** Signed Laplacian and its statistics — computed once, shared */
+  laplacianSigned?: import('./laplacian.js').SignedLaplacian;
   /** Greyscale raw pixel data (computed once, shared) */
   greyRaw?: {
     data: Buffer;

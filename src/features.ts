@@ -29,6 +29,13 @@ export const FEATURE_NAMES: readonly string[] = [
   // Deep-mode features (42-47) — NaN unless mode is 'deep'
   'textLineCount', 'textMedianXHeight', 'textMedianStrokeWidth',
   'textMedianLineContrast', 'textMedianStrokeSharpness', 'textIllegibleFraction',
+  // Signed-Laplacian features (48-51) — thorough and deep only; NaN in fast
+  // mode, which keeps libvips' cheaper clipped convolve.
+  // Appended, not inserted: trained models address features by index, and the
+  // fast model's columns must stay exactly positions 0-14 for those indices to
+  // line up at inference. See the position-stability test in features.test.ts.
+  'laplacianSignedStdev', 'laplacianSignedMeanAbs',
+  'laplacianSignedEdgeRatio', 'laplacianSaturationRatio',
 ] as const;
 
 const PRESET_INDEX: Record<string, number> = { document: 0, receipt: 1, card: 2 };
@@ -93,6 +100,16 @@ export function extractFeatures(
   values[12] = dpi;
   values[13] = isJpeg;
   values[14] = PRESET_INDEX[preset] ?? 0;
+
+  // 48-51: signed Laplacian (thorough and deep). The clipped features above
+  // (8-11) lose the whole negative lobe and saturate on sharp pages; these do
+  // not. saturationRatio says how much the clipped ones understate this image.
+  if (ctx.laplacianSigned) {
+    values[48] = ctx.laplacianSigned.stdev;
+    values[49] = ctx.laplacianSigned.meanAbs;
+    values[50] = ctx.laplacianSigned.edgeRatio;
+    values[51] = ctx.laplacianSigned.saturationRatio;
+  }
 
   // Thorough-only features (15+) — remain NaN in fast mode
   if (mode !== 'fast') {

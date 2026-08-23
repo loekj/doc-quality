@@ -54,6 +54,8 @@ export { isPdf, parsePages } from './pdf.js';
 export { detectDocumentBounds } from './boundary.js';
 export { estimateSkewAngle, gradedPenalty } from './analyzers.js';
 export { analyzeTextLines, TEXT_LINE_DEFAULTS } from './text-lines.js';
+export { signedLaplacian, clipToUint8 } from './laplacian.js';
+export type { SignedLaplacian } from './laplacian.js';
 export type { TextLine, TextLineMetrics, TextLineThresholds } from './text-lines.js';
 export { analyzePdfContent } from './pdf-content.js';
 export type { PdfPageContent, PdfPageKind, EmbeddedImage } from './pdf-content.js';

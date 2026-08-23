@@ -43,6 +43,7 @@ import {
   analyzeTextLegibility,
 } from './analyzers.js';
 import { computeSpectrum2D } from './fft-core.js';
+import { signedLaplacian } from './laplacian.js';
 import { runRegisteredFFTAnalyzers, hasFFTAnalyzers } from './fft.js';
 
 /**
@@ -153,18 +154,61 @@ export async function runPipeline(
   timings.brightness = performance.now() - t;
 
   // ── 7. Laplacian → sharpness (+ shared data for thorough) ───
+  //
+  // `sharp.convolve` returns uint8, which discards the Laplacian's entire
+  // negative lobe and pins anything above 255 — on a sharp page that is 4% of
+  // pixels. Computing it signed keeps both, widening the sharp-to-blurred range
+  // from 44x to 73x, and clipping the signed result reproduces the old buffer
+  // bit for bit, so the analyzers below read identical numbers.
+  //
+  // It is not free: libvips convolves with SIMD, and the JS version measured
+  // roughly twice its cost. In thorough and deep that barely registers, because
+  // the greyscale decode it needs was already happening for greyRaw — 42ms to
+  // 53ms at 1500px. In fast mode there is no such decode to share, so the step
+  // would double outright, which defeats the point of the tier. Fast mode keeps
+  // libvips, and features 48-51 stay NaN there.
   t = performance.now();
-  const lapResult = await sharp(analysisBuffer)
-    .greyscale()
-    .convolve({
-      width: 3,
-      height: 3,
-      kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
-    })
-    .raw()
-    .toBuffer({ resolveWithObject: true });
+  let lapData: Buffer;
+  let lapWidth: number;
+  let lapHeight: number;
 
-  const lapData = lapResult.data;
+  if (mode === 'fast') {
+    const lapResult = await sharp(analysisBuffer)
+      .greyscale()
+      .convolve({
+        width: 3,
+        height: 3,
+        kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
+      })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    lapData = lapResult.data;
+    lapWidth = lapResult.info.width;
+    lapHeight = lapResult.info.height;
+  } else {
+    const greyResult = await sharp(analysisBuffer)
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    ctx.greyRaw = {
+      data: greyResult.data,
+      width: greyResult.info.width,
+      height: greyResult.info.height,
+    };
+
+    const signed = signedLaplacian(
+      greyResult.data,
+      greyResult.info.width,
+      greyResult.info.height,
+      thresholds.laplacianEdgeThreshold,
+    );
+    ctx.laplacianSigned = signed;
+    lapData = signed.clipped;
+    lapWidth = signed.width;
+    lapHeight = signed.height;
+  }
+
   const lapLen = lapData.length;
   let lapSum = 0,
     lapSumSq = 0,
@@ -180,8 +224,8 @@ export async function runPipeline(
 
   ctx.laplacian = {
     data: lapData,
-    width: lapResult.info.width,
-    height: lapResult.info.height,
+    width: lapWidth,
+    height: lapHeight,
     mean: lapMean,
     variance: lapVariance,
     stdev: Math.sqrt(Math.max(0, lapVariance)),
@@ -238,16 +282,7 @@ export async function runPipeline(
     t = performance.now();
     push(issues, analyzePerspectiveSharpness(ctx, thresholds));
 
-    // Perspective — brightness uniformity
-    const greyRaw = await sharp(analysisBuffer)
-      .greyscale()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    ctx.greyRaw = {
-      data: greyRaw.data,
-      width: greyRaw.info.width,
-      height: greyRaw.info.height,
-    };
+    // Perspective — brightness uniformity (greyRaw was decoded for the Laplacian)
     push(issues, analyzePerspectiveBrightness(ctx, thresholds));
     timings.perspective = performance.now() - t;
 
