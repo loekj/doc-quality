@@ -1,22 +1,43 @@
 import sharp from 'sharp';
 
 /**
+ * Detected document region, in original-image coordinates.
+ */
+export interface DetectedBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /**
+   * How many of the four edges produced a real transition, 2 to 4.
+   *
+   * An undetected edge falls back to the frame edge, so a region built from two
+   * edges still contains whatever sat along the other two. That is enough to
+   * pick a preset from, and not enough to crop to: a partial crop leaves a hard
+   * dark strip along one side, which then reads as `shadow-on-edges` — worse
+   * than the uncropped frame it replaced. The pipeline requires all four.
+   */
+  edgesDetected: number;
+}
+
+/**
  * Lightweight, ultra-conservative brightness-based document boundary detector.
  *
  * Scans a greyscale thumbnail for dark→bright transitions at image margins to
- * estimate where a light document sits on a darker background. Does NOT crop
- * the analysis image — returns the detected region in original-image coordinates.
+ * estimate where a light document sits on a darker background. Returns the
+ * region in original-image coordinates; the caller decides what to do with it.
  *
- * When preset is 'auto', detected bounds inform preset selection (document vs
- * receipt vs card). Detected bounds are always returned in the result's `boundary`
- * field regardless of preset. Controlled via `detectBounds` option (default: true).
+ * When preset is 'auto', detected bounds inform preset selection. When all four
+ * edges were found, the pipeline also crops analysis to the region, so the desk
+ * a document was photographed on stops being graded along with it. Controlled
+ * via `detectBounds` and `cropToBounds` (both default true).
  *
- * Returns null (no detection) unless all five safety gates pass. A wrong boundary
- * destroys scoring reliability, so the default posture is "return null".
+ * Returns null unless all five safety gates pass. A wrong boundary destroys
+ * scoring reliability, so the default posture is "return null".
  */
 export async function detectDocumentBounds(
   buffer: Buffer,
-): Promise<{ x: number; y: number; width: number; height: number } | null> {
+): Promise<DetectedBounds | null> {
   try {
     return await detectDocumentBoundsUnsafe(buffer);
   } catch {
@@ -26,9 +47,7 @@ export async function detectDocumentBounds(
   }
 }
 
-async function detectDocumentBoundsUnsafe(
-  buffer: Buffer,
-): Promise<{ x: number; y: number; width: number; height: number } | null> {
+async function detectDocumentBoundsUnsafe(buffer: Buffer): Promise<DetectedBounds | null> {
   // ── Step 1: Quick decode to greyscale thumbnail ──────────────────
   const meta = await sharp(buffer).metadata();
   const origW = meta.width || 0;
@@ -277,5 +296,11 @@ async function detectDocumentBoundsUnsafe(
 
   if (resultW <= 0 || resultH <= 0) return null;
 
-  return { x: resultX, y: resultY, width: resultW, height: resultH };
+  return {
+    x: resultX,
+    y: resultY,
+    width: resultW,
+    height: resultH,
+    edgesDetected: detectedEdgeCount,
+  };
 }

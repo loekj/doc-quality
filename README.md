@@ -106,6 +106,7 @@ console.log(result.timing);   // { totalMs, analyzers: { brightness: 2, sharpnes
 ```typescript
 const result = await checkQuality(buffer, {
   mode: 'thorough',           // 'fast' (default), 'thorough' (FFT + zone), or 'deep' (per-text-line)
+  cropToBounds: true,         // analyse only the detected document, not the desk (default: true)
   preset: 'receipt',           // 'auto' (default), 'document', 'receipt', 'card'
   timeout: 5000,               // ms, default 10000. Set to 0 to disable.
   thresholds: {                // Override any threshold (merged on top of preset)

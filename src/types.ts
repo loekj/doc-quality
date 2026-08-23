@@ -90,6 +90,20 @@ export interface QualityOptions {
    * Default: true
    */
   detectBounds?: boolean;
+  /**
+   * Analyse only the detected document region instead of the whole frame.
+   *
+   * Without this, a page photographed on a desk is graded together with the
+   * desk: a correctly exposed document on a dark surface reports
+   * `shadow-on-edges` and scores 0.70, where the same page cropped to its own
+   * edges scores 1.00 with nothing flagged. Only applies when `detectBounds`
+   * found a region and no custom `boundaryDetector` was supplied, and is
+   * skipped when the region already covers most of the frame.
+   *
+   * Set to false to report the detected bounds without letting them change
+   * what is measured. Default: true
+   */
+  cropToBounds?: boolean;
   /** Enable OCR confidence check (requires tesseract.js peer dep). Default: false */
   ocrConfidence?: boolean;
   /** Pre-initialized Tesseract worker for reuse. If not provided, one is created and terminated per call. */
@@ -325,10 +339,18 @@ export interface BoundaryResult {
   detected: boolean;
   /** Detected document region (if detected) */
   region?: DocumentRegion;
+  /** How many of the four edges produced a real transition (built-in detector) */
+  edgesDetected?: number;
   /** Confidence of the detection 0–1 */
   confidence: number;
   /** Cropped buffer containing only the document (if detected) */
   croppedBuffer?: Buffer;
+  /**
+   * True when quality analysis actually ran on this region rather than the
+   * whole frame. False or absent means the region is reported for information
+   * only and the surrounding desk was still measured.
+   */
+  cropped?: boolean;
 }
 
 /** A single quality issue */
@@ -471,6 +493,11 @@ export interface AnalysisContext {
     edgeCount: number;
     length: number;
   };
+  /**
+   * Pixel count of the encoded file, before any crop to the document region.
+   * Bits-per-pixel must be measured against the pixels the file encodes.
+   */
+  encodedPixels?: number;
   /** Signed Laplacian and its statistics — computed once, shared */
   laplacianSigned?: import('./laplacian.js').SignedLaplacian;
   /** Greyscale raw pixel data (computed once, shared) */

@@ -270,14 +270,24 @@ async function checkImage(
 
   const resolvedPreset = await resolvePreset(buffer, preset, useBoundary, builtinBounds);
   const thresholds = resolveThresholds(resolvedPreset, overrides);
-  const result = await runPipeline(buffer, mode, thresholds, resolvedPreset, useBoundary, penalties, options);
+  const result = await runPipeline(
+    buffer, mode, thresholds, resolvedPreset, useBoundary, penalties, options, builtinBounds,
+  );
 
-  // Attach detected bounds to result (regardless of preset)
+  // Report the region even when it was not used for analysis — either because
+  // cropping is off, or because it already covered nearly the whole frame.
   if (builtinBounds && !result.boundary) {
     result.boundary = {
       detected: true,
-      region: builtinBounds,
+      region: {
+        x: builtinBounds.x,
+        y: builtinBounds.y,
+        width: builtinBounds.width,
+        height: builtinBounds.height,
+      },
+      edgesDetected: builtinBounds.edgesDetected,
       confidence: 1,
+      cropped: false,
     };
   }
 

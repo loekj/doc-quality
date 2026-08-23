@@ -11,6 +11,7 @@ import type {
   ImageMetadata,
   Timing,
   AnalyzerName,
+  DocumentRegion,
 } from './types.js';
 import type { ConcretePreset } from './defaults.js';
 import { extractFeatures } from './features.js';
@@ -64,6 +65,7 @@ export async function runPipeline(
   boundaryDetector?: BoundaryDetectorFn,
   penalties?: Partial<Record<AnalyzerName, number>>,
   options?: QualityOptions,
+  builtinBounds?: (DocumentRegion & { edgesDetected?: number }) | null,
 ): Promise<QualityResult> {
   const t0 = performance.now();
   const timings: Timing['analyzers'] = {};
@@ -91,8 +93,43 @@ export async function runPipeline(
   // ── 1. Metadata ──────────────────────────────────────────────
   let t = performance.now();
   const meta = await sharp(analysisSource).metadata();
-  const width = meta.width || 0;
-  const height = meta.height || 0;
+  // Pixel count of the encoded file, before any crop. Bits-per-pixel has to be
+  // measured against the pixels the file actually encodes, not a subregion.
+  const encodedPixels = (meta.width || 0) * (meta.height || 0);
+
+  // ── 1b. Crop to the detected document ────────────────────────
+  //
+  // Detection used to inform preset selection and then be thrown away, so every
+  // lighting metric still saw the desk. A correctly exposed page photographed
+  // on a dark surface scored 0.70 with `shadow-on-edges`; the same page cropped
+  // to its own edges scores 1.00 with nothing flagged — the shadow was the
+  // table. Detection declines whenever its five gates are not all satisfied,
+  // and when it does fire it lands within 1% of the true rectangle.
+  let croppedRegion: (DocumentRegion & { edgesDetected?: number }) | undefined;
+  if (
+    builtinBounds &&
+    !boundaryResult &&
+    options?.cropToBounds !== false &&
+    isWorthCropping(builtinBounds, meta.width || 0, meta.height || 0)
+  ) {
+    try {
+      analysisSource = await sharp(analysisSource)
+        .extract({
+          left: builtinBounds.x,
+          top: builtinBounds.y,
+          width: builtinBounds.width,
+          height: builtinBounds.height,
+        })
+        .toBuffer();
+      croppedRegion = builtinBounds;
+    } catch {
+      // Extraction failed — analyse the full frame rather than nothing.
+    }
+  }
+
+  const analysisMeta = croppedRegion ? await sharp(analysisSource).metadata() : meta;
+  const width = analysisMeta.width || 0;
+  const height = analysisMeta.height || 0;
   timings.resolution = performance.now() - t;
 
   const imageMetadata: ImageMetadata = {
@@ -104,7 +141,7 @@ export async function runPipeline(
   };
 
   // ── 2. Flatten alpha (PDF renderers produce RGBA PNGs) ───────
-  if (meta.hasAlpha) {
+  if (analysisMeta.hasAlpha) {
     analysisSource = await sharp(analysisSource)
       .flatten({ background: { r: 255, g: 255, b: 255 } })
       .toBuffer();
@@ -463,11 +500,52 @@ export async function runPipeline(
     issues,
     metadata: imageMetadata,
     ...(boundaryResult ? { boundary: boundaryResult } : {}),
+    ...(croppedRegion
+      ? {
+          boundary: {
+            detected: true,
+            region: {
+              x: croppedRegion.x,
+              y: croppedRegion.y,
+              width: croppedRegion.width,
+              height: croppedRegion.height,
+            },
+            edgesDetected: croppedRegion.edgesDetected,
+            confidence: 1,
+            cropped: true,
+          },
+        }
+      : {}),
     timing: {
       totalMs: Math.round(performance.now() - t0),
       analyzers: roundTimings(timings),
     },
   };
+}
+
+/**
+ * Is this crop worth making?
+ *
+ * A region covering almost the whole frame has no desk to remove, and the
+ * extract plus re-encode costs more than it saves. Guard against degenerate
+ * regions here too, since a bad crop destroys every downstream measurement.
+ */
+function isWorthCropping(
+  region: DocumentRegion & { edgesDetected?: number },
+  width: number,
+  height: number,
+): boolean {
+  if (width <= 0 || height <= 0) return false;
+  // Every edge must have been found. An undetected edge falls back to the frame
+  // edge, so cropping on two edges keeps the desk along the other two — and a
+  // hard dark strip on one side reads as a shadow, which is worse than the
+  // uncropped frame it replaced.
+  if ((region.edgesDetected ?? 0) < 4) return false;
+  if (region.width < 32 || region.height < 32) return false;
+  if (region.x < 0 || region.y < 0) return false;
+  if (region.x + region.width > width || region.y + region.height > height) return false;
+  const coverage = (region.width * region.height) / (width * height);
+  return coverage < 0.95;
 }
 
 /** Compute confidence based on distance from the pass threshold */

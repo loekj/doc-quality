@@ -296,7 +296,9 @@ export function analyzeBlankPage(ctx: AnalysisContext, t: Thresholds): Issue | n
 export function analyzeCompression(ctx: AnalysisContext, t: Thresholds): Issue | null {
   const format = ctx.sharpMeta?.format ?? ctx.metadata.format;
   if (format !== 'jpeg') return null;
-  const totalPixels = ctx.metadata.width * ctx.metadata.height;
+  // Against the encoded frame, not a cropped subregion: the file's bytes encode
+  // the whole image, so dividing them by fewer pixels invents compression.
+  const totalPixels = ctx.encodedPixels ?? ctx.metadata.width * ctx.metadata.height;
   if (totalPixels === 0) return null;
   const bpp = (ctx.originalBuffer.length * 8) / totalPixels;
   if (bpp >= t.compressionBppMin) return null;

@@ -393,16 +393,19 @@ describe('noise detection', () => {
 });
 
 describe('analyzeShadow', () => {
-  it('detects dark edges with bright center (thorough mode)', async () => {
-    // Create image with dark edges and bright center
+  it('detects a vignette shadow falling across the page (thorough mode)', async () => {
+    // A shadow darkens the page gradually. A hard dark frame around a bright
+    // rectangle is not a shadow, it is a desk — see the next test.
     const width = 400;
     const height = 400;
     const pixels = Buffer.alloc(width * height * 3);
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
+        const dx = (x - width / 2) / (width / 2);
+        const dy = (y - height / 2) / (height / 2);
+        const r = Math.min(1, Math.hypot(dx, dy));
+        const val = Math.round(215 * (1 - 0.85 * r ** 1.4));
         const idx = (y * width + x) * 3;
-        const isEdge = y < 40 || y >= 360 || x < 40 || x >= 360;
-        const val = isEdge ? 20 : 200;
         pixels[idx] = val;
         pixels[idx + 1] = val;
         pixels[idx + 2] = val;
@@ -417,6 +420,41 @@ describe('analyzeShadow', () => {
     });
     const issue = result.issues.find((i) => i.analyzer === 'shadow');
     expect(issue).toBeDefined();
+  });
+
+  it('crops a page photographed on a dark surface instead of calling it shadowed', async () => {
+    // Same shape the old fixture used: a bright rectangle inside a dark frame.
+    // That is a document on a desk, and grading the desk with it reported
+    // shadow-on-edges on a perfectly exposed page.
+    const width = 400;
+    const height = 400;
+    const pixels = Buffer.alloc(width * height * 3);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 3;
+        const isDesk = y < 40 || y >= 360 || x < 40 || x >= 360;
+        // Sparse content: dense stripes drag a scan line's running average
+        // below the detector's document threshold and cost it an edge.
+        const val = isDesk ? 20 : (x % 24 < 2 && y % 24 < 2) ? 40 : 215;
+        pixels[idx] = val;
+        pixels[idx + 1] = val;
+        pixels[idx + 2] = val;
+      }
+    }
+    const buffer = await sharp(pixels, { raw: { width, height, channels: 3 } }).png().toBuffer();
+
+    const cropped = await checkQuality(buffer, { mode: 'thorough', timeout: 0 });
+    expect(cropped.boundary?.cropped).toBe(true);
+    expect(cropped.issues.find((i) => i.analyzer === 'shadow')).toBeUndefined();
+    expect(cropped.metadata.width).toBeLessThan(width);
+
+    // Opting out puts the desk back in frame, and the shadow verdict with it.
+    const whole = await checkQuality(buffer, {
+      mode: 'thorough', timeout: 0, cropToBounds: false,
+      thresholds: { shadowBrightnessDiff: 60 },
+    });
+    expect(whole.boundary?.cropped).toBe(false);
+    expect(whole.issues.find((i) => i.analyzer === 'shadow')).toBeDefined();
   });
 });
 
