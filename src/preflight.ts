@@ -283,7 +283,7 @@ export async function preflight(
       try {
         const features = extractPreflightFeatures({
           megapixels, fileSize, meanBrightness, maxChannelStdev,
-          laplacianStdev: lapStdev, edgeDensity, foregroundRatio, maxStdev,
+          laplacianStdev: lapStdev, edgeDensity, foregroundRatio,
         });
         const raw = options.scorer(features);
         // Validate: must be a finite number; clamp to [0, 1]

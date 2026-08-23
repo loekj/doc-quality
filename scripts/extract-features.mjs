@@ -32,12 +32,17 @@ const TIER_LABELS = {
   'unsorted': null,
 };
 
+// Must match test/fixtures/real/analyze-all.mjs and the fixture README, or the
+// presetIdx column disagrees with how those images are actually graded.
+// `photos/` holds photographs of documents, not receipts.
 const PRESET_MAP = {
   documents: 'document',
   receipts: 'receipt',
   cards: 'card',
-  photos: 'receipt',
+  photos: 'document',
 };
+
+const MODES = ['fast', 'thorough', 'deep'];
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.tiff', '.tif', '.avif', '.heif', '.heic']);
 
@@ -116,8 +121,10 @@ async function main() {
         try {
           const buffer = await readFile(imagePath);
 
-          // Extract in both modes
-          for (const mode of ['fast', 'thorough']) {
+          // Every mode. `deep` populates the six text-line features, which are
+          // the strongest predictors of whether OCR can read the page — omitting
+          // it left columns 42-47 empty for the whole dataset.
+          for (const mode of MODES) {
             let featureVec = null;
             await checkQuality(buffer, {
               mode,

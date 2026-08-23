@@ -191,22 +191,52 @@ export function loadPreflightModel(json: string): PreflightScorerFn {
   return (features: PreflightFeatureVector) => evaluateModel(model, features.values);
 }
 
+/** Feature index that is only populated in thorough and deep modes. */
+const THOROUGH_MARKER = 15; // foregroundRatio
+/** Feature index that is only populated in deep mode. */
+const DEEP_MARKER = 42; // textLineCount
+
+/**
+ * Which mode produced this feature vector.
+ *
+ * Inferred from which features are present, because the vector carries no mode
+ * of its own. A deep run fills the text-line block; a thorough run fills the
+ * foreground ratio but not that block; a fast run fills neither.
+ */
+function inferMode(values: Float64Array): 'fast' | 'thorough' | 'deep' {
+  if (values.length > DEEP_MARKER && !Number.isNaN(values[DEEP_MARKER])) return 'deep';
+  if (values.length > THOROUGH_MARKER && !Number.isNaN(values[THOROUGH_MARKER])) return 'thorough';
+  return 'fast';
+}
+
+/**
+ * Which models can stand in for a mode, best first.
+ *
+ * A deep vector is a superset of a thorough one, so the thorough model reads it
+ * correctly — the deep-only columns simply go unused. The reverse is not true:
+ * handing a fast vector to a thorough model means every thorough feature
+ * arrives as NaN, which XGBoost routes down its missing-value branches. That
+ * still returns a number, so it is a last resort rather than a refusal.
+ */
+const MODEL_FALLBACKS: Record<'fast' | 'thorough' | 'deep', string[]> = {
+  fast: ['fast', 'thorough', 'deep'],
+  thorough: ['thorough', 'deep', 'fast'],
+  deep: ['deep', 'thorough', 'fast'],
+};
+
 function createScorer(bundle: ModelBundle): Scorer {
   const scorer = ((features: FeatureVector, _issues: Issue[]) => {
     // One model per mode — preset is encoded as feature #14 (presetIdx)
-    const isThorough = features.values.length > 15 && !isNaN(features.values[15]);
-    const mode = isThorough ? 'thorough' : 'fast';
+    const mode = inferMode(features.values);
 
-    const model = bundle[mode];
-    if (!model) {
-      // Fallback: try the other mode, then legacy preset-mode keys, then any model
-      const fallback = bundle[isThorough ? 'fast' : 'thorough']
-        ?? Object.values(bundle)[0];
-      if (!fallback) return 1.0; // No models at all — pass through
-      return evaluateModel(fallback, features.values);
+    for (const key of MODEL_FALLBACKS[mode]) {
+      const model = bundle[key];
+      if (model) return evaluateModel(model, features.values);
     }
 
-    return evaluateModel(model, features.values);
+    const any = Object.values(bundle)[0];
+    if (!any) return 1.0; // No models at all — pass through
+    return evaluateModel(any, features.values);
   }) as Scorer;
 
   scorer.getModel = (_preset: string, mode: string) => bundle[mode];

@@ -58,9 +58,11 @@ ALL_FEATURES = FAST_FEATURES + [
     'laplacianSignedEdgeRatio', 'laplacianSaturationRatio',
 ]
 
+# Must match src/preflight-features.ts exactly, in order. Every name must also
+# be a column produced by extractFeatures — see the guard in train_preflight.
 PREFLIGHT_FEATURES = [
     'megapixels', 'fileSize', 'brightnessAvg', 'brightnessStdevMax',
-    'laplacianStdev', 'edgeRatio', 'foregroundRatio', 'blankStdevMax',
+    'laplacianStdev', 'edgeRatio', 'foregroundRatio',
 ]
 
 
@@ -286,14 +288,37 @@ def main():
         if len(thorough_test) > 0:
             metrics['thorough'] = evaluate_model(model, thorough_test, ALL_FEATURES, name='thorough')
 
-    # Preflight model (uses fast-mode rows with subset of features)
-    if len(fast_train) > 0:
-        available_cols = [c for c in PREFLIGHT_FEATURES if c in fast_train.columns]
-        if len(available_cols) >= 3:
-            model = train_model(fast_train, available_cols, name='preflight')
-            bundle['preflight'] = model_to_json(model, available_cols)
-            if len(fast_test) > 0:
-                metrics['preflight'] = evaluate_model(model, fast_test, available_cols, name='preflight')
+    deep_train = train_df[train_df['mode'] == 'deep']
+    deep_test = test_df[test_df['mode'] == 'deep']
+    if len(deep_train) > 0:
+        model = train_model(deep_train, ALL_FEATURES, name='deep')
+        bundle['deep'] = model_to_json(model, ALL_FEATURES)
+        if len(deep_test) > 0:
+            metrics['deep'] = evaluate_model(model, deep_test, ALL_FEATURES, name='deep')
+
+    # Preflight model.
+    #
+    # Trained on thorough rows, not fast ones. foregroundRatio is a preflight
+    # input but is only computed from thorough mode upward, so fast rows carry
+    # it as NaN — the model would never see a real value for a feature the
+    # browser always supplies at inference.
+    #
+    # Missing columns are fatal rather than dropped. Dropping one shifts every
+    # index after it, and the exported model addresses features by index, so a
+    # silently shortened list makes it read the wrong inputs forever.
+    preflight_train = thorough_train
+    preflight_test = thorough_test
+    if len(preflight_train) > 0:
+        missing_preflight = [c for c in PREFLIGHT_FEATURES if c not in preflight_train.columns]
+        if missing_preflight:
+            print(f"\nPreflight features missing from the CSV: {missing_preflight}")
+            print("These must match src/preflight-features.ts and be produced by extractFeatures.")
+            sys.exit(1)
+        model = train_model(preflight_train, PREFLIGHT_FEATURES, name='preflight')
+        bundle['preflight'] = model_to_json(model, PREFLIGHT_FEATURES)
+        if len(preflight_test) > 0:
+            metrics['preflight'] = evaluate_model(
+                model, preflight_test, PREFLIGHT_FEATURES, name='preflight')
 
     if not bundle:
         print("\nNo models trained! Ensure features.csv exists in the input directory.")

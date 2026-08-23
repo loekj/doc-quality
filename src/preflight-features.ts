@@ -1,6 +1,14 @@
+/**
+ * Feature vector for the browser preflight model.
+ *
+ * Every name here must also be a column produced by `extractFeatures`, because
+ * the preflight model is trained from the same CSV. A name with no matching
+ * column is silently dropped at training time, which shifts every index after
+ * it and makes the exported model read the wrong features.
+ */
 export const PREFLIGHT_FEATURE_NAMES: readonly string[] = [
   'megapixels', 'fileSize', 'brightnessAvg', 'brightnessStdevMax',
-  'laplacianStdev', 'edgeRatio', 'foregroundRatio', 'blankStdevMax',
+  'laplacianStdev', 'edgeRatio', 'foregroundRatio',
 ];
 
 export interface PreflightFeatureVector {
@@ -16,7 +24,6 @@ export function extractPreflightFeatures(stats: {
   laplacianStdev: number;
   edgeDensity: number;
   foregroundRatio: number;
-  maxStdev: number;
 }): PreflightFeatureVector {
   const values = new Float64Array(PREFLIGHT_FEATURE_NAMES.length);
   values[0] = stats.megapixels;
@@ -26,6 +33,5 @@ export function extractPreflightFeatures(stats: {
   values[4] = stats.laplacianStdev;
   values[5] = stats.edgeDensity;
   values[6] = stats.foregroundRatio;
-  values[7] = stats.maxStdev;
   return { names: PREFLIGHT_FEATURE_NAMES, values };
 }

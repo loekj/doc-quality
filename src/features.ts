@@ -263,15 +263,23 @@ export function extractFeatures(
       values[38] = ctx.sharpMeta?.channels ?? NaN;
     }
 
-    // 42-47: per-text-line legibility (deep mode)
-    if (ctx.textLineMetrics) {
+    // 42-47: per-text-line legibility (deep mode).
+    //
+    // lineCount is 0 rather than NaN when deep mode ran and found no text —
+    // a blank page, a photograph, noise. That distinguishes "measured, nothing
+    // there" from "never measured", which is what tells a loaded model which
+    // mode produced a vector. Leaving it NaN made a deep run on a blank page
+    // indistinguishable from a thorough one.
+    if (mode === 'deep') {
       const tl = ctx.textLineMetrics;
-      values[42] = tl.lineCount;
-      values[43] = tl.medianXHeight;
-      values[44] = tl.medianStrokeWidth;
-      values[45] = tl.medianContrast;
-      values[46] = tl.medianStrokeSharpness;
-      values[47] = tl.illegibleFraction;
+      values[42] = tl?.lineCount ?? 0;
+      if (tl) {
+        values[43] = tl.medianXHeight;
+        values[44] = tl.medianStrokeWidth;
+        values[45] = tl.medianContrast;
+        values[46] = tl.medianStrokeSharpness;
+        values[47] = tl.illegibleFraction;
+      }
     }
 
     // 39-41: text geometry metrics (from textGeometry analyzer)
