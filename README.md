@@ -1,6 +1,6 @@
 # doc-quality
 
-**The** most comprehensive -- arguably over-engineered -- document image quality checker for pre-OCR and AI extraction pipelines. 23 analyzers, 30 issue codes, FFT spectral analysis, zone-based uniformity checks, boundary detection, and a 3KB browser preflight. All so your users never upload a blurry receipt photo that burns $0.15 and 45 seconds on Textract just to return `"confidence": 0.12`.
+**The** most comprehensive -- arguably over-engineered -- document image quality checker for pre-OCR and AI extraction pipelines. 24 analyzers, 38 issue codes, FFT spectral analysis, zone-based uniformity checks, per-text-line legibility measurement, document boundary cropping, PDF content classification, and a 3KB browser preflight. All so your users never upload a blurry receipt photo that burns $0.15 and 45 seconds on Textract just to return `"confidence": 0.12`.
 
 Stop feeding garbage to expensive AI. Catch it first.
 
@@ -10,7 +10,7 @@ Stop feeding garbage to expensive AI. Catch it first.
 
 **The fix:** `doc-quality` catches bad images in milliseconds -- in the browser before upload, or on the server before the expensive pipeline -- and gives users actionable guidance to retake the photo. Every rejection saves a round-trip, a service call, and a frustrated user staring at "processing..." for a minute.
 
-Two entry points: a **browser preflight** (~3KB, zero deps, <10ms) for instant upload validation, and a **full backend** (sharp-based, 23 analyzers, FFT frequency-domain analysis) for thorough server-side quality gating. If preflight rejects an image, the backend is guaranteed to reject it too.
+Three tiers: a **browser preflight** (~3KB, zero deps, <10ms) for instant upload validation, a **backend check** (sharp-based, 24 analyzers, FFT frequency-domain analysis) for server-side gating, and a **deep pass** that measures whether each line of text can actually be read. If preflight rejects an image, the backend is guaranteed to reject it too.
 
 ```
 npm install doc-quality sharp
@@ -71,11 +71,11 @@ If `preflight(x)` rejects, `checkQuality(x)` **always** rejects. The reverse is 
 | | Preflight | Full Backend |
 |---|---|---|
 | **Environment** | Browser (Canvas API) | Node.js (sharp) |
-| **Speed** | <10ms on mobile | 50-200ms |
+| **Speed** | <10ms on mobile | ~50ms fast, ~350ms thorough, ~380ms deep |
 | **Bundle size** | ~3KB gzipped | N/A (server) |
-| **Checks** | 8 core checks | 23 analyzers |
+| **Checks** | 8 core checks | 24 analyzers |
 | **Dependencies** | None | sharp (+ optional pdf, ocr) |
-| **Use case** | Reject clearly bad uploads instantly | Thorough server-side validation |
+| **Use case** | Reject clearly bad uploads instantly | Server-side validation, and `deep` for asynchronous work |
 
 ## Full Backend API
 
@@ -93,13 +93,42 @@ const result = await checkQuality(new URL('file:///path/to/image.png'));
 const result = await checkQuality('https://my-bucket.s3.amazonaws.com/scan.jpg');
 const result = await checkQuality(new URL('https://cdn.example.com/doc.png'));
 
-console.log(result.pass);     // true/false
-console.log(result.score);    // 0-1
-console.log(result.preset);   // 'document' | 'receipt' | 'card'
-console.log(result.issues);   // Issue[]
-console.log(result.metadata); // { width, height, megapixels, fileSize, format? }
-console.log(result.timing);   // { totalMs, analyzers: { brightness: 2, sharpness: 5, ... } }
+console.log(result.pass);       // true/false
+console.log(result.score);      // 0-1
+console.log(result.confidence); // 'high' | 'medium' | 'low' — distance from the pass threshold
+console.log(result.preset);     // 'document' | 'receipt' | 'card'
+console.log(result.issues);     // Issue[]
+console.log(result.metadata);   // { width, height, megapixels, fileSize, format? }
+console.log(result.timing);     // { totalMs, analyzers: { brightness: 2, sharpness: 5, ... } }
+
+// Present when relevant
+console.log(result.boundary);      // { detected, region, cropped, edgesDetected }
+console.log(result.pdfKind);       // 'digital-text' | 'scanned' | 'mixed' | 'empty'
+console.log(result.effectiveDpi);  // true scan resolution, from PDF page geometry
+console.log(result.pageResults);   // per-page breakdown (multi-page PDFs)
+console.log(result.worstPageScore);
 ```
+
+Each issue carries a `severity`:
+
+```typescript
+for (const issue of result.issues) {
+  issue.code;      // 'blurry', 'too-dark', 'text-too-small', ...
+  issue.guidance;  // user-facing text
+  issue.message;   // diagnostic text with the measured value
+  issue.value;     // what was measured
+  issue.threshold; // what it was measured against
+  issue.penalty;   // score multiplier, graded by how badly the threshold was missed
+  issue.severity;  // 'error' (lowers the score) | 'advisory' (reported only)
+}
+```
+
+`advisory` issues are reported and fed to the feature vector but never lower the
+score. Some signals fire on perfectly good documents -- printed text is periodic
+and anisotropic, so a clean page looks like moire and directional blur to a
+global detector -- and a clean born-digital PDF scored 0.44 when they gated it.
+`grayscale-in-color`, `fft-moire`, `directional-blur` and `distorted-char-shapes`
+are advisory.
 
 ### Options
 
@@ -118,8 +147,16 @@ const result = await checkQuality(buffer, {
   },
   detectBounds: true,          // Built-in document boundary detection (default: true)
   boundaryDetector: myFn,      // Custom boundary detector (replaces built-in)
+  pdfStrategy: 'content',      // 'content' (default) or 'render' — see PDF Support
+  ocrConfidence: false,        // Run OCR and check word confidence (needs tesseract.js)
 });
 ```
+
+**Timeouts fail closed.** A check that did not finish tells you nothing about the
+image, so it returns `pass: false, score: 0` with an `analysis-timeout` issue
+rather than a perfect score. For PDFs the deadline applies **per page**: a
+20-page scan legitimately takes ~18s, and one page that hangs no longer sinks
+the rest.
 
 ### `createChecker(defaults?)`
 
@@ -224,6 +261,19 @@ Images below these thresholds are rejected — they're too small to produce usef
 | **Resolution** | 0.3 MP (~548x548) | 0.5 MP | 0.3 MP |
 | **File size** | 15 KB | 50 KB | 30 KB |
 
+### Native-Resolution Passes
+
+Most analysis runs on a copy resized to `analysisMaxPx`. Three things do not,
+because a resize destroys exactly what they measure:
+
+| What | Why |
+|---|---|
+| JPEG blockiness | The 8x8 block grid does not survive resampling. Measured on the resized copy it returned 0.000 for every image wider than 1500px -- every phone photo. |
+| Per-text-line metrics (`deep`) | x-height and stroke width are the detail a resize removes. |
+| Embedded PDF images | Graded at the resolution the file actually holds. |
+
+Transient cost is about 1 byte per pixel: 12 MB for a 12 MP photo, 84 MB at 33 MP.
+
 ### Auto-Resize for Analysis (no rejection)
 
 Images of **any** dimension are automatically resized to a maximum of **1500px** (longest edge) for analysis. This is not a rejection — it's an internal optimization:
@@ -267,19 +317,30 @@ The browser preflight uses slightly more lenient max limits (10% higher) to main
 Presets adjust thresholds for different document types. Use `preset: 'auto'` (default) to infer from aspect ratio and dimensions.
 
 ```typescript
-// Auto-detection logic:
-// - Narrow/tall images (aspect < 0.4 or > 2.5) -> 'receipt'
-// - Credit-card-shaped + small (< 2 MP)        -> 'card'
-// - Everything else                             -> 'document'
+// Auto-detection order:
+// 1. Much longer than wide (aspect <= 0.45 or >= 2.2)  -> 'receipt'
+// 2. A standard paper ratio (A-series, Letter, Legal)  -> 'document'
+// 3. Close to ISO 7810 ID-1 and under 4 MP             -> 'card'
+// 4. Everything else                                    -> 'document'
 
 const result = await checkQuality(buffer, { preset: 'auto' });
 ```
+
+Paper is checked before cards because their shapes overlap and paper is far more
+common. A4 portrait is 0.707 and a portrait passport is 0.704; A4 landscape is
+1.414 and an open passport is 1.420. Nothing separates those from dimensions
+alone, so paper wins -- `document` holds the lenient thresholds, and a card
+graded as a document under-detects where a document graded as a card
+over-rejects. The cost is that a photographed passport grades as a document.
+
+When boundary detection finds the page, the ratio is taken from the document
+rather than the frame, which makes this considerably more reliable for photos.
 
 | Preset | Use Case | Stricter On |
 |---|---|---|
 | `document` | Tax forms, contracts, letters | Default thresholds |
 | `receipt` | Thermal paper, register receipts | Brightness, sharpness, resolution |
-| `card` | ID cards, credit cards, passports | Edge density, contrast, sharpness uniformity |
+| `card` | ID cards, credit cards, driving licences | Edge density, contrast, sharpness uniformity |
 
 ## Thresholds
 
@@ -296,7 +357,7 @@ const t = resolveThresholds('receipt', { brightnessMin: 70 });
 ```
 
 <details>
-<summary>All 34 thresholds</summary>
+<summary>All 45 thresholds</summary>
 
 | Threshold | Default | Description |
 |---|---|---|
@@ -320,9 +381,9 @@ const t = resolveThresholds('receipt', { brightnessMin: 70 });
 | `blankVarianceMax` | 2.0 | Max channel stdev (blank page) |
 | `skewAngleMax` | 10.0 | Max estimated skew (degrees) |
 | `shadowBrightnessDiff` | 60 | Edge vs center brightness diff |
-| `compressionBppMin` | 0.5 | Minimum bits-per-pixel |
+| `compressionBppMin` | 0.3 | Minimum bits-per-pixel |
+| `compressionBlockinessMin` | 0.1 | Blockiness needed to confirm low bpp is real damage |
 | `colorSaturationMin` | 0.01 | Grayscale-in-color detection |
-| `moireCorrelationMax` | 0.65 | Moire pattern autocorrelation |
 | `backgroundP90Min` | 170 | 90th-percentile brightness |
 | `darkShadowCenterMax` | 150 | Compound shadow center brightness |
 | `darkShadowDiffMin` | 20 | Compound shadow diff |
@@ -334,8 +395,28 @@ const t = resolveThresholds('receipt', { brightnessMin: 70 });
 | `zoneSharpnessMinRatio` | 0.25 | Weakest/strongest quadrant sharpness |
 | `directionalBlurRatioMax` | 4.0 | Directional energy concentration |
 | `ocrConfidenceMin` | 60 | Minimum OCR word confidence (0-100) |
+| `zoneContentStdevMin` | 5 | Greyscale spread a quadrant needs before its sharpness counts |
+| `baselineDeviationMax` | 0.02 | Max text baseline wobble, as a fraction of height |
+| `charSizeCVMax` | 0.5 | Max variation in character area |
+| `charShapeCVMax` | 0.4 | Max variation in character circularity (advisory) |
+| `laplacianEdgeThreshold` | 30 | Magnitude above which a pixel counts as an edge |
+| `binarizationThreshold` | 128 | Greyscale cutoff for text binarization |
+| `textXHeightMin` | 8 | Minimum lowercase body height in px (`deep`) |
+| `textStrokeWidthMin` | 1.2 | Minimum stroke thickness in px (`deep`) |
+| `textLineContrastMin` | 40 | Minimum per-line ink-to-paper separation (`deep`) |
+| `textStrokeSharpnessMin` | 0.4 | Minimum contrast-normalised stroke edge gradient (`deep`) |
+| `textIllegibleFractionMax` | 0.15 | Share of lines allowed to fail legibility (`deep`) |
 
 </details>
+
+Penalties are **graded by severity**, not flat. A JPEG that misses the
+bits-per-pixel floor by a little is penalised a little; one that misses it by 4x
+is penalised much harder. Flat penalties meant quality 25 and quality 8 both
+scored 0.7, so a quality 4 file passed. The ladder now runs:
+
+| JPEG quality | 92 | 50 | 25 | 12 | 8 | 4 | 1 |
+|---|---|---|---|---|---|---|---|
+| score | 1.00 | 1.00 | 0.67 | 0.57 | 0.51 | 0.29 | 0.15 |
 
 ## Issue Codes and Guidance
 
@@ -391,6 +472,12 @@ for (const issue of result.issues) {
 | `low-ocr-confidence` | The text in this image is difficult to read. Ensure the document is sharp, well-lit, and high resolution. |
 | `file-too-large` | The file is too large. Please reduce the file size or compress the image before uploading. |
 | `resolution-too-high` | The image resolution is excessively high. Please resize or downsample before uploading. |
+| `wavy-text-lines` | The text lines appear wavy or uneven. Flatten the document and retake the photo on a flat surface. |
+| `inconsistent-char-size` | Characters vary in size across the document, suggesting the paper is crumpled or folded. Flatten and retake. |
+| `distorted-char-shapes` | Characters appear distorted or warped. Smooth out the document and photograph it on a flat surface. |
+| `text-too-small` | The text is too small to read reliably. Please move closer, or scan at a higher DPI. |
+| `illegible-text` | Some lines of text cannot be read. Please retake the photo with better focus and lighting. |
+| `analysis-timeout` | The quality check did not finish in time. Please try again, or upload a smaller file. |
 | `custom` | A quality issue was detected with this image. |
 
 </details>
@@ -452,6 +539,46 @@ const result = await checkQuality(pdfBuffer, { pages: '1,4,8' }); // Specific pa
 const result = await checkQuality(pdfBuffer, { pages: 'all' });   // Every page
 ```
 
+### Content, Not Rendered Pixels
+
+By default each page is classified and its **embedded images** are graded at
+native resolution. Rasterising the page instead answers the wrong question
+twice: a born-digital PDF has an exact text layer, and rendering resamples
+embedded scans to the viewport then emits PNG, which erases the blocking and the
+bits-per-pixel that made a scan bad.
+
+A 300 DPI scan saved at JPEG quality 4, in the same file:
+
+| | size analysed | format | score | |
+|---|---|---|---|---|
+| rendered page | 1224x1584 | png | **1.00** | PASS |
+| embedded image | 2550x3300 | jpeg | **0.29** | FAIL |
+
+```typescript
+const result = await checkQuality(pdfBuffer);
+result.pdfKind;      // 'digital-text' | 'scanned' | 'mixed' | 'empty'
+result.effectiveDpi; // 300 — native pixels over placed page size
+
+// Rasterise every page instead (the old behaviour)
+await checkQuality(pdfBuffer, { pdfStrategy: 'render' });
+```
+
+- **`digital-text`** pages pass with score 1 and no pixel analysis. Their text
+  layer is exact, so image quality does not apply.
+- **`scanned`** and **`mixed`** pages are graded on their embedded images. On a
+  mixed page only the images are graded, not the typeset text around them.
+- Classification uses **image coverage**, not the presence of text: an OCR'd
+  scan carries both a full-page image and a text layer.
+- `effectiveDpi` is real scan resolution, derived from native pixels over placed
+  size. The low-DPI check honours it and skips the camera-EXIF guard, because
+  PDF page geometry is trustworthy where EXIF density is not.
+
+Original DCTDecode streams are recovered byte for byte, so file size,
+bits-per-pixel and the 8x8 block grid stay meaningful. Everything else --
+Flate, CCITT, JPEG 2000, stencil masks, CMYK, and anything carrying a `/Decode`
+array -- comes through pdf.js, decoded. Falls back to rendering automatically
+when `pdfjs-dist` is unavailable or a file cannot be parsed.
+
 ### Multi-Page Results
 
 Single-page PDFs return a flat result. Multi-page PDFs include per-page breakdown:
@@ -483,27 +610,54 @@ const result = await checkQuality(pdfBuffer, {
 
 ## Boundary Detection
 
-Built-in lightweight document boundary detection identifies where a document sits within a photo (e.g., on a desk). Detected bounds are used for preset auto-detection and returned in the result.
+Built-in boundary detection finds where a document sits within a photo, and
+analysis then runs on that region instead of the whole frame.
+
+This matters more than it sounds. A correctly exposed page photographed on a
+dark desk scores **0.70 with `shadow-on-edges`** when the desk is graded along
+with it. Cropped to its own edges the same page scores **1.00 with nothing
+flagged** -- the shadow was the table. It holds across dark, mid-grey, brown and
+black surfaces.
 
 ```typescript
-const result = await checkQuality(buffer); // detectBounds defaults to true
+const result = await checkQuality(buffer); // detectBounds and cropToBounds default to true
 
 if (result.boundary?.detected) {
-  console.log(result.boundary.region); // { x, y, width, height }
+  result.boundary.region;         // { x, y, width, height }
+  result.boundary.cropped;        // true when analysis ran on that region
+  result.boundary.edgesDetected;  // how many of the four edges resolved
 }
 
-// Disable it
-const result = await checkQuality(buffer, { detectBounds: false });
+// Report the region without letting it change what is measured
+await checkQuality(buffer, { cropToBounds: false });
 
-// Or use directly
+// Turn detection off entirely
+await checkQuality(buffer, { detectBounds: false });
+
+// Or use it directly
 import { detectDocumentBounds } from 'doc-quality';
 const bounds = await detectDocumentBounds(buffer);
-// { x: 120, y: 80, width: 1600, height: 2200 } or null
+// { x: 144, y: 176, width: 1512, height: 1848, edgesDetected: 4 } or null
 ```
+
+Detection is deliberately conservative: five safety gates, and null unless all
+of them pass. Measured against known rectangles it lands within 1% of the truth
+(IoU 0.987-0.998), and it declines outright on a near-white surface where there
+is no transition to find.
+
+**Cropping needs all four edges.** An undetected edge falls back to the frame
+edge, so a region built from two or three still contains whatever sat along the
+others -- and a hard dark strip down one side reads as a shadow, which is worse
+than the uncropped frame it replaced. A page flush to the bottom of the frame
+resolves three edges and is left alone. Cropping is also skipped when the region
+already covers 95% of the frame, and whenever a custom `boundaryDetector` is
+supplied, since that detector owns the decision.
 
 ### Custom Boundary Detector
 
-Bring your own boundary detector for more accurate cropping. When provided, all quality checks run on the cropped region.
+Bring your own detector for more accurate cropping. When provided it replaces the
+built-in one entirely, `cropToBounds` does not apply, and quality checks run on
+whatever `croppedBuffer` you return.
 
 ```typescript
 const result = await checkQuality(buffer, {

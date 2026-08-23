@@ -25,7 +25,6 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   compressionBppMin: 0.3,
   compressionBlockinessMin: 0.1,
   colorSaturationMin: 0.01,
-  moireCorrelationMax: 0.65,
   backgroundP90Min: 170,
   darkShadowCenterMax: 150,
   darkShadowDiffMin: 20,

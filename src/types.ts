@@ -196,8 +196,6 @@ export interface Thresholds {
   compressionBlockinessMin: number;
   /** Minimum channel saturation — grayscale-in-color detection (default: 0.01) */
   colorSaturationMin: number;
-  /** Maximum autocorrelation for moiré pattern detection (default: 0.5) */
-  moireCorrelationMax: number;
   /** Minimum 90th-percentile brightness for document background (default: 170) */
   backgroundP90Min: number;
   /** Maximum center brightness for compound shadow detection (default: 150) */
@@ -461,7 +459,6 @@ export type AnalyzerName =
   | 'dimBackground'
   | 'compression'
   | 'colorDepth'
-  | 'moire'
   | 'zoneQuality'
   | 'directionalBlur'
   | 'ocrConfidence'
