@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import sharp from 'sharp';
+import zlib from 'node:zlib';
 import { checkQuality, analyzePdfContent } from '../src/index.js';
 
 // ── minimal hand-built PDFs ──────────────────────────────────────
@@ -31,6 +32,14 @@ function streamObj(dict: string, data: string | Buffer): Buffer {
     bytes,
     Buffer.from('\nendstream', 'latin1'),
   ]);
+}
+
+/** True mean luminance, measured from converted pixels. */
+async function greyscaleMean(buf: Buffer): Promise<number> {
+  const raw = await sharp(buf).greyscale().raw().toBuffer();
+  let sum = 0;
+  for (const v of raw) sum += v;
+  return sum / raw.length;
 }
 
 const pageDict = (resources: string, contentsObj: number) =>
@@ -353,4 +362,168 @@ describe('PDF timeouts apply per page', () => {
     expect(result.pass).toBe(false);
     expect(result.issues.map((i) => i.code)).toContain('analysis-timeout');
   }, 60_000);
+});
+
+describe('non-JPEG embedded images', () => {
+  const W = 1700;
+  const H = 2200;
+
+  /** Greyscale pixels of a scanned-looking page. */
+  async function scanPixels(blur = 0): Promise<Buffer> {
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">` +
+      `<rect width="${W}" height="${H}" fill="#f4f1e8"/>` +
+      Array.from({ length: 30 }, (_, i) =>
+        `<text x="120" y="${100 + i * 70}" font-size="32" font-family="Helvetica" fill="#1c1c1c">` +
+        `Scanned line ${i} — invoice item, quantity 3, unit 41.20</text>`,
+      ).join('') + '</svg>';
+    let pipeline = sharp(Buffer.from(svg)).flatten({ background: '#f4f1e8' });
+    if (blur) pipeline = pipeline.blur(blur);
+    return pipeline.greyscale().raw().toBuffer();
+  }
+
+  /** Pack greyscale into 1 bit per pixel, set bit = paper. */
+  function packBitonal(grey: Buffer): Buffer {
+    const rowBytes = (W + 7) >> 3;
+    const out = Buffer.alloc(rowBytes * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (grey[y * W + x] >= 128) out[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7);
+      }
+    }
+    return out;
+  }
+
+  function imagePdf(dict: string, data: Buffer, content = 'q 612 0 0 792 0 0 cm /Im0 Do Q'): Buffer {
+    return buildPdf([
+      null,
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      pageDict('/XObject << /Im0 5 0 R >>', 4),
+      streamObj('', content),
+      streamObj(dict, data),
+    ]);
+  }
+
+  const base = (extra: string) =>
+    `/Type /XObject /Subtype /Image /Width ${W} /Height ${H} ${extra}`;
+
+  it('extracts Flate-compressed images of every depth', async () => {
+    // pdf.js decodes these asynchronously, and the synchronous accessor throws
+    // for anything that is not a DCTDecode JPEG. Swallowing that throw dropped
+    // every Flate image in every PDF: the page classified as `empty` and passed
+    // with a perfect score.
+    const grey = await scanPixels();
+    const rgb = Buffer.from(Array.from({ length: W * H * 3 }, (_, i) => grey[Math.floor(i / 3)]));
+
+    const variants: Array<[string, Buffer]> = [
+      [base('/ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode'),
+        zlib.deflateSync(packBitonal(grey))],
+      [base('/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode'),
+        zlib.deflateSync(grey)],
+      [base('/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode'),
+        zlib.deflateSync(rgb)],
+    ];
+
+    for (const [dict, data] of variants) {
+      const [content] = await analyzePdfContent(imagePdf(dict, data), [1]);
+      expect(content.kind).toBe('scanned');
+      expect(content.images).toHaveLength(1);
+      expect(content.images[0].width).toBe(W);
+      expect(content.images[0].effectiveDpi).toBe(200);
+    }
+  }, 180_000);
+
+  it('extracts stencil masks, which scanners use for bitonal pages', async () => {
+    // A mask paints through a 1-bit shape and arrives on a different operator
+    // carrying an object instead of an id. It was not handled at all, so a
+    // bitonal scanned page had no images and passed.
+    const grey = await scanPixels();
+    const pdf = imagePdf(
+      base('/ImageMask true /Decode [1 0] /Filter /FlateDecode'),
+      zlib.deflateSync(packBitonal(grey)),
+      '0 g q 612 0 0 792 0 0 cm /Im0 Do Q',
+    );
+    const [content] = await analyzePdfContent(pdf, [1]);
+    expect(content.kind).toBe('scanned');
+    expect(content.images).toHaveLength(1);
+  }, 90_000);
+
+  it('gets bitonal polarity right — paper bright, ink dark', async () => {
+    const grey = await scanPixels();
+    const packed = zlib.deflateSync(packBitonal(grey));
+    for (const dict of [
+      base('/ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode'),
+      base('/ImageMask true /Decode [1 0] /Filter /FlateDecode'),
+    ]) {
+      const [content] = await analyzePdfContent(imagePdf(dict, packed), [1]);
+      // sharp's stats() reports the source image's channels, not the pipeline
+      // output, so luminance has to be measured from actual converted pixels.
+      expect(await greyscaleMean(content.images[0].buffer)).toBeGreaterThan(200);
+    }
+  }, 120_000);
+
+  it('still catches a blurred page through the Flate path', async () => {
+    const pdf = imagePdf(
+      base('/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode'),
+      zlib.deflateSync(await scanPixels(8)),
+    );
+    const result = await checkQuality(pdf, { mode: 'thorough', timeout: 0 });
+    expect(result.pass).toBe(false);
+    expect(result.issues.map((i) => i.code)).toContain('blurry');
+  }, 90_000);
+
+  it('leaves images with a /Decode array to pdf.js', async () => {
+    // /Decode remaps sample values, and Adobe's CMYK JPEGs routinely carry
+    // [1 0 ...] to invert them. Raw stream bytes know nothing about it, so
+    // reusing them would analyse an inverted page: greyscale mean 16 where the
+    // truth is 239, which reads as a hopelessly dark scan.
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">` +
+      `<rect width="${W}" height="${H}" fill="#f4f1e8"/>` +
+      Array.from({ length: 30 }, (_, i) =>
+        `<text x="120" y="${100 + i * 70}" font-size="32" font-family="Helvetica" fill="#1c1c1c">` +
+        `Line ${i} invoice item, qty 3, unit 41.20</text>`,
+      ).join('') + '</svg>';
+    const inverted = await sharp(Buffer.from(svg))
+      .flatten({ background: '#f4f1e8' }).negate().jpeg({ quality: 85 }).toBuffer();
+
+    const pdf = imagePdf(
+      base('/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Decode [1 0 1 0 1 0]'),
+      inverted,
+    );
+    const [content] = await analyzePdfContent(pdf, [1]);
+    // Falls back to decoded pixels, which honour /Decode.
+    expect(content.images[0].format).toBe('png');
+    expect(await greyscaleMean(content.images[0].buffer)).toBeGreaterThan(200);
+
+    const result = await checkQuality(pdf, { mode: 'thorough', timeout: 0 });
+    expect(result.issues.map((i) => i.code)).not.toContain('too-dark');
+  }, 120_000);
+
+  it('reads CMYK JPEGs without inverting them', async () => {
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">` +
+      `<rect width="${W}" height="${H}" fill="#f4f1e8"/>` +
+      Array.from({ length: 30 }, (_, i) =>
+        `<text x="120" y="${100 + i * 70}" font-size="32" font-family="Helvetica" fill="#1c1c1c">` +
+        `Line ${i} invoice item</text>`,
+      ).join('') + '</svg>';
+    const cmyk = await sharp(Buffer.from(svg))
+      .flatten({ background: '#f4f1e8' }).toColourspace('cmyk').jpeg({ quality: 85 }).toBuffer();
+
+    const pdf = imagePdf(
+      base('/ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /DCTDecode'),
+      cmyk,
+    );
+    const [content] = await analyzePdfContent(pdf, [1]);
+    expect(content.images).toHaveLength(1);
+    expect(await greyscaleMean(content.images[0].buffer)).toBeGreaterThan(200);
+
+    // And the whole page must not read as dark: stats() on a CMYK file reports
+    // ink coverages (1, 1, 14, 21) rather than brightness, so averaging them
+    // reported `too-dark` on a normal page.
+    const result = await checkQuality(pdf, { mode: 'thorough', timeout: 0 });
+    expect(result.issues.map((i) => i.code)).not.toContain('too-dark');
+  }, 120_000);
 });

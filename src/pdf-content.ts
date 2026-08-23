@@ -137,6 +137,13 @@ function recoverJpegStreams(buffer: Buffer): Map<string, Buffer> {
     const filters = (filter[1].match(/\/\w+/g) ?? []).map((f) => f.slice(1));
     if (filters.length !== 1 || filters[0] !== 'DCTDecode') continue;
 
+    // A /Decode array remaps sample values, and Adobe's CMYK JPEGs routinely
+    // carry [1 0 1 0 1 0 1 0] to invert them. The raw stream knows nothing
+    // about that, so handing it straight to an image decoder would analyse an
+    // inverted page — greyscale mean 28 where the truth is 228, which reads as
+    // a hopelessly dark scan. Leave these to pdf.js, which applies /Decode.
+    if (/\/Decode\s*\[/.test(dict)) continue;
+
     // Skip the EOL that must follow the `stream` keyword.
     let dataStart = streamAt + 'stream'.length;
     if (text[dataStart] === '\r') dataStart++;
@@ -166,24 +173,34 @@ function recoverJpegStreams(buffer: Buffer): Map<string, Buffer> {
 
 // ── Decoded-pixel fallback ───────────────────────────────────────
 
-/** Expand 1-bit-per-pixel packed rows into one byte per pixel. */
-function unpack1Bpp(data: Uint8Array, width: number, height: number): Buffer {
+/**
+ * Expand 1-bit-per-pixel packed rows into one byte per pixel.
+ *
+ * @param inkWhereSet - true when a set bit means ink (stencil masks paint
+ *   through their set bits), false when a set bit means paper.
+ */
+function unpack1Bpp(
+  data: Uint8Array,
+  width: number,
+  height: number,
+  inkWhereSet: boolean,
+): Buffer {
   const rowBytes = (width + 7) >> 3;
   const out = Buffer.alloc(width * height);
+  const set = inkWhereSet ? 0 : 255;
+  const clear = inkWhereSet ? 255 : 0;
   for (let y = 0; y < height; y++) {
     const src = y * rowBytes;
     const dst = y * width;
     for (let x = 0; x < width; x++) {
-      const bit = (data[src + (x >> 3)] >> (7 - (x & 7))) & 1;
-      // pdf.js GRAYSCALE_1BPP stores 0 for white; invert to normal greyscale.
-      out[dst + x] = bit ? 0 : 255;
+      out[dst + x] = (data[src + (x >> 3)] >> (7 - (x & 7))) & 1 ? set : clear;
     }
   }
   return out;
 }
 
 /** Re-encode decoded pdf.js image pixels as PNG. Loses original compression. */
-async function encodeDecodedPixels(obj: DecodedImage): Promise<Buffer | null> {
+async function encodeDecodedPixels(obj: DecodedImage, isMask = false): Promise<Buffer | null> {
   const { width, height, data } = obj;
   if (!data || !width || !height) return null;
 
@@ -202,7 +219,7 @@ async function encodeDecodedPixels(obj: DecodedImage): Promise<Buffer | null> {
     raw = Buffer.from(data.buffer, data.byteOffset, data.length);
   } else if (data.length === ((width + 7) >> 3) * height) {
     channels = 1;
-    raw = unpack1Bpp(data, width, height);
+    raw = unpack1Bpp(data, width, height, isMask);
   } else {
     return null; // Unrecognised layout — safer to skip than to guess.
   }
@@ -225,6 +242,41 @@ interface DecodedImage {
    * ids (`img_p0_1`) are positional and carry no relation to it.
    */
   ref?: string;
+}
+
+/** How long to wait for pdf.js to decode one image before giving up on it. */
+const OBJECT_RESOLVE_TIMEOUT_MS = 10_000;
+
+/**
+ * Read a decoded image out of `page.objs`.
+ *
+ * The synchronous form throws "Requesting object that isn't resolved yet" for
+ * anything pdf.js decodes asynchronously, which is every image that is not a
+ * DCTDecode JPEG. Catching that throw silently dropped every Flate-compressed
+ * image in every PDF — bitonal fax scans, PNG-style screenshots, 8-bit greyscale
+ * scans — so those pages classified as `empty` and passed with a perfect score.
+ * The callback form waits for the decode instead.
+ */
+function resolveObject(
+  objs: { get(id: string, callback: (value: unknown) => void): void },
+  objId: string,
+): Promise<DecodedImage | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: DecodedImage | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), OBJECT_RESOLVE_TIMEOUT_MS);
+    timer.unref?.();
+    try {
+      objs.get(objId, (value) => finish((value as DecodedImage) ?? null));
+    } catch {
+      finish(null);
+    }
+  });
 }
 
 type Matrix = [number, number, number, number, number, number];
@@ -325,15 +377,27 @@ async function readPage(
         ctm = multiply(ctm, args as unknown as Matrix);
         continue;
       }
+      const isMask =
+        fn === OPS.paintImageMaskXObject || fn === OPS.paintImageMaskXObjectRepeat;
       if (
         fn !== OPS.paintImageXObject &&
         fn !== OPS.paintImageXObjectRepeat &&
-        fn !== OPS.paintInlineImageXObject
+        fn !== OPS.paintInlineImageXObject &&
+        !isMask
       ) {
         continue;
       }
 
-      const objId = typeof args[0] === 'string' ? (args[0] as string) : null;
+      // A stencil mask paints the current fill colour through a 1-bit shape,
+      // and its operator carries an object rather than a plain id. Scanners
+      // that emit bitonal pages this way produced no images at all, so the page
+      // read as empty and passed. Groups of masks are skipped: those are glyph
+      // stencils from type rendering, not page content.
+      const objId = isMask
+        ? ((args[0] as { data?: string } | undefined)?.data ?? null)
+        : typeof args[0] === 'string'
+          ? (args[0] as string)
+          : null;
       if (!objId) continue;
 
       // The CTM maps the unit square onto the placed image rectangle.
@@ -343,19 +407,14 @@ async function readPage(
 
       const coverage = pageArea > 0 ? (placedWidthPt * placedHeightPt) / pageArea : 0;
 
-      let obj: DecodedImage | null = null;
-      try {
-        obj = page.objs.get(objId) as unknown as DecodedImage;
-      } catch {
-        obj = null;
-      }
+      const obj = await resolveObject(page.objs, objId);
       if (!obj || !obj.width || !obj.height) continue;
 
       // Skip decoration before doing any encoding work.
       if (coverage < MIN_IMAGE_COVERAGE) continue;
       if (obj.width * obj.height < MIN_IMAGE_PIXELS) continue;
 
-      const extracted = await extractImageBytes(obj, jpegStreams);
+      const extracted = await extractImageBytes(obj, jpegStreams, isMask);
       if (!extracted) continue;
 
       images.push({
@@ -396,13 +455,16 @@ async function readPage(
 async function extractImageBytes(
   obj: DecodedImage,
   jpegStreams: Map<string, Buffer>,
+  isMask = false,
 ): Promise<{ buffer: Buffer; format: 'jpeg' | 'png' } | null> {
-  // Prefer the original JPEG: it carries the file size, bits-per-pixel and
-  // block structure that a re-encode destroys.
-  const jpeg = findJpegStream(obj, jpegStreams);
-  if (jpeg) return { buffer: jpeg, format: 'jpeg' };
+  if (!isMask) {
+    // Prefer the original JPEG: it carries the file size, bits-per-pixel and
+    // block structure that a re-encode destroys.
+    const jpeg = findJpegStream(obj, jpegStreams);
+    if (jpeg) return { buffer: jpeg, format: 'jpeg' };
+  }
 
-  const png = await encodeDecodedPixels(obj);
+  const png = await encodeDecodedPixels(obj, isMask);
   return png ? { buffer: png, format: 'png' } : null;
 }
 

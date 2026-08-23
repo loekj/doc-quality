@@ -140,11 +140,28 @@ export async function runPipeline(
     fileSize: buffer.length, // Always report original file size
   };
 
-  // ── 2. Flatten alpha (PDF renderers produce RGBA PNGs) ───────
-  if (analysisMeta.hasAlpha) {
-    analysisSource = await sharp(analysisSource)
-      .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .toBuffer();
+  // ── 2. Normalise alpha and colour space ──────────────────────
+  //
+  // Alpha: libvips `convolve` returns all zeros on an image that has one, so
+  // the whole Laplacian reads as perfectly flat. This flatten is load-bearing.
+  //
+  // Colour space: `stats()` reports the channels the file actually holds. On a
+  // CMYK scan those are ink coverages, not brightness — a normal page reads
+  // 1,1,14,21 where its true luminance is 230, so averaging them gave 9 and
+  // reported `too-dark`. Larger CMYK files happened to escape because the
+  // analysis resize re-encoded them to sRGB on the way through; anything under
+  // analysisMaxPx did not.
+  const needsColourConversion =
+    analysisMeta.space !== undefined && !NORMALISED_SPACES.has(analysisMeta.space);
+
+  if (analysisMeta.hasAlpha || needsColourConversion) {
+    let normalise = sharp(analysisSource);
+    if (needsColourConversion) normalise = normalise.toColourspace('srgb');
+    if (analysisMeta.hasAlpha) {
+      normalise = normalise.flatten({ background: { r: 255, g: 255, b: 255 } });
+    }
+    // PNG, so the conversion is not re-quantised by a lossy encoder.
+    analysisSource = await normalise.png().toBuffer();
   }
 
   // ── 3. Resize for analysis (cap memory on huge photos) ───────
@@ -522,6 +539,9 @@ export async function runPipeline(
     },
   };
 }
+
+/** Colour spaces whose channels already read as brightness. */
+const NORMALISED_SPACES = new Set<string>(['srgb', 'rgb', 'rgb16', 'b-w', 'bw', 'grey16']);
 
 /**
  * Is this crop worth making?

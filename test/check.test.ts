@@ -789,3 +789,46 @@ describe('checkQuality — multi-page PDF', () => {
     expect(result.pageResults!.length).toBe(2);
   });
 });
+
+describe('colour space normalisation', () => {
+  async function textPage(width: number, height: number, space?: 'cmyk' | 'grey'): Promise<Buffer> {
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<rect width="${width}" height="${height}" fill="#f4f1e8"/>` +
+      Array.from({ length: Math.floor(height / 70) }, (_, i) =>
+        `<text x="60" y="${70 + i * 70}" font-size="${Math.round(height / 45)}" ` +
+        `font-family="Helvetica" fill="#1c1c1c">Line ${i} invoice item, qty 3, unit 41.20</text>`,
+      ).join('') + '</svg>';
+    let pipeline = sharp(Buffer.from(svg)).flatten({ background: '#f4f1e8' });
+    if (space === 'cmyk') pipeline = pipeline.toColourspace('cmyk');
+    if (space === 'grey') pipeline = pipeline.greyscale();
+    return pipeline.jpeg({ quality: 85 }).toBuffer();
+  }
+
+  it('scores a CMYK page the same as the identical sRGB page', async () => {
+    // stats() reports the channels the file holds. On CMYK those are ink
+    // coverages — a normal page reads 1,1,14,21 against a true luminance of
+    // 230 — so averaging them reported `too-dark`. Files above analysisMaxPx
+    // escaped only because the analysis resize re-encoded them to sRGB.
+    for (const [w, h] of [[900, 1200], [1200, 1550], [2550, 3300]] as const) {
+      const srgb = await checkQuality(await textPage(w, h), {
+        mode: 'thorough', preset: 'document', timeout: 0,
+      });
+      const cmyk = await checkQuality(await textPage(w, h, 'cmyk'), {
+        mode: 'thorough', preset: 'document', timeout: 0,
+      });
+      expect(cmyk.issues.map((i) => i.code)).not.toContain('too-dark');
+      expect(cmyk.score).toBe(srgb.score);
+    }
+  }, 180_000);
+
+  it('scores a greyscale page the same as the identical sRGB page', async () => {
+    const srgb = await checkQuality(await textPage(900, 1200), {
+      mode: 'thorough', preset: 'document', timeout: 0,
+    });
+    const grey = await checkQuality(await textPage(900, 1200, 'grey'), {
+      mode: 'thorough', preset: 'document', timeout: 0,
+    });
+    expect(grey.score).toBe(srgb.score);
+  }, 90_000);
+});
