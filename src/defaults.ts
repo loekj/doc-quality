@@ -101,26 +101,69 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
 };
 
 /**
+ * Aspect ratios of the paper sizes documents actually arrive on, portrait and
+ * landscape. The ISO A series is all 1:√2, so A3, A4 and A5 share one entry.
+ */
+const PAPER_RATIOS = [
+  210 / 297,   // A-series portrait  0.707
+  297 / 210,   // A-series landscape 1.414
+  8.5 / 11,    // Letter portrait    0.773
+  11 / 8.5,    // Letter landscape   1.294
+  8.5 / 14,    // Legal portrait     0.607
+  14 / 8.5,    // Legal landscape    1.647
+];
+
+/** How close a ratio must be to a paper ratio to count as that paper. */
+const PAPER_TOLERANCE = 0.015;
+
+function isPaperRatio(ratio: number): boolean {
+  return PAPER_RATIOS.some((paper) => Math.abs(ratio - paper) <= PAPER_TOLERANCE);
+}
+
+/**
  * Detect document type from image dimensions.
  *
+ * Two numbers cannot separate every case, so where shapes genuinely collide
+ * this resolves toward `document`. That preset has the lenient thresholds: a
+ * card graded as a document under-detects, where a document graded as a card
+ * over-rejects, and over-rejection is the error that actually hurts.
+ *
+ * Paper is checked before cards because their shapes overlap and paper is far
+ * more common. A4 portrait is 0.707 and a portrait passport is 0.704; A4
+ * landscape is 1.414 and an open passport is 1.420. Nothing can tell those
+ * apart from dimensions alone, so paper wins. Legal portrait (0.607) likewise
+ * sits inside any card band wide enough to hold an ID-1 card at 0.631.
+ *
+ * Previously A4 below about 2 MP — anything scanned under 145 DPI — was read as
+ * a card, which applies a stricter zone-uniformity limit that a normal page
+ * fails: identical content scored 1.00 as a document and 0.70 as a card.
+ *
  * Heuristics:
- * - Cards: aspect ratio ~1.4–1.8 (ISO 7810: 85.6×53.98mm = 1.586)
- *   and relatively small (< 2 MP) — a full-page scan at 300dpi is ~3.5 MP
- * - Receipts: very tall/narrow (ratio < 0.4) or very wide/short (ratio > 2.5)
- * - Everything else: document
+ * - Receipts: much longer than wide in either orientation.
+ * - Cards: close to ISO 7810 ID-1 (85.6×53.98mm, ratio 1.586) and not huge.
+ *   The band is deliberately narrow, which excludes 3:2 and 4:3 camera frames.
+ * - Everything else: document.
  */
 export function detectPreset(width: number, height: number): ConcretePreset {
   const ratio = width / (height || 1);
   const mp = (width * height) / 1_000_000;
 
-  // Receipts: very elongated in either direction
-  if (ratio < 0.4 || ratio > 2.5) return 'receipt';
+  // Receipts: thermal rolls and their photographs are far longer than wide.
+  // The bound is inclusive — an 80x200mm receipt lands on exactly 0.400, and
+  // an exclusive test read it as a document.
+  if (ratio <= 0.45 || ratio >= 2.2) return 'receipt';
 
-  // Cards: credit-card-shaped (~1.586) and not huge
-  // Check both orientations: landscape (1.3–1.9) or portrait (0.53–0.77)
-  const isCardLandscape = ratio >= 1.3 && ratio <= 1.9;
-  const isCardPortrait = ratio >= 0.53 && ratio <= 0.77;
-  if ((isCardLandscape || isCardPortrait) && mp < 2.0) return 'card';
+  // Standard paper outranks the card check where the two overlap.
+  if (isPaperRatio(ratio)) return 'document';
+
+  // ID-1 is 1.586 landscape, 0.631 portrait. Kept tight on purpose: widening it
+  // to admit passports would swallow A4, and widening it to 1.3 swallowed every
+  // 4:3 phone frame. The megapixel ceiling allows a card scanned at 600 DPI
+  // (2.6 MP) while still excluding full-page scans, which are paper-shaped and
+  // have already returned above.
+  const isCardLandscape = ratio >= 1.52 && ratio <= 1.7;
+  const isCardPortrait = ratio >= 0.59 && ratio <= 0.66;
+  if ((isCardLandscape || isCardPortrait) && mp < 4.0) return 'card';
 
   return 'document';
 }
