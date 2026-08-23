@@ -45,6 +45,7 @@ import {
 } from './analyzers.js';
 import { computeSpectrum2D } from './fft-core.js';
 import { signedLaplacian } from './laplacian.js';
+import { PREFLIGHT_DEFAULTS } from './preflight-thresholds.js';
 import { runRegisteredFFTAnalyzers, hasFFTAnalyzers } from './fft.js';
 
 /**
@@ -514,10 +515,23 @@ export async function runPipeline(
 
   const finalScore = Math.round(score * 100) / 100;
 
+  // A value past preflight's own floor fails outright, whatever the score says.
+  //
+  // Unless the caller named their own pass threshold. That is an explicit
+  // statement of where their bar sits, and overriding it would be the same
+  // silent no-op this floor exists to prevent — the guarantee is about the
+  // default contract between the two layers, and a caller who moves the bar
+  // has taken ownership of it.
+  const callerSetPassThreshold = options?.thresholds?.passThreshold !== undefined;
+  const belowPreflightFloor = !callerSetPassThreshold && issues.some(crossesPreflightFloor);
+  const passed = finalScore >= thresholds.passThreshold && !belowPreflightFloor;
+
   return {
-    pass: finalScore >= thresholds.passThreshold,
+    pass: passed,
     score: finalScore,
-    confidence: scoreConfidence(finalScore, thresholds.passThreshold),
+    confidence: belowPreflightFloor
+      ? ('high' as const)
+      : scoreConfidence(finalScore, thresholds.passThreshold),
     preset: resolvedPreset,
     issues,
     metadata: imageMetadata,
@@ -543,6 +557,38 @@ export async function runPipeline(
       analyzers: roundTimings(timings),
     },
   };
+}
+
+/**
+ * Is this issue bad enough that the browser preflight would have refused it?
+ *
+ * The two layers disagree in kind: preflight is a binary gate where any issue
+ * rejects, while the backend multiplies penalties into a score. A single issue
+ * penalised 0.7 still clears a 0.5 pass threshold, so every one of preflight's
+ * checks could fire on the backend and the image still pass — the monotonic
+ * guarantee held only because bad images usually trip several checks at once.
+ * An overexposed page went 0.70 PASS on the backend after preflight refused it.
+ *
+ * Preflight's thresholds are deliberately the more lenient ones. Crossing them
+ * is therefore a strictly stronger signal than crossing the backend's, and is
+ * treated as a hard fail whatever the weighted score says. Comparisons are only
+ * made where the two measure the same quantity on the same scale; sharpness and
+ * edge density are measured on a 200px thumbnail in the browser and a 1500px
+ * copy here, so their numbers are not comparable and are left out.
+ */
+function crossesPreflightFloor(issue: Issue): boolean {
+  const p = PREFLIGHT_DEFAULTS;
+  switch (issue.code) {
+    case 'low-resolution': return issue.value < p.resolutionMin;
+    case 'resolution-too-high': return issue.value > p.resolutionMax;
+    case 'file-too-small': return issue.value < p.fileSizeMin;
+    case 'file-too-large': return issue.value > p.fileSizeMax;
+    case 'too-dark': return issue.value < p.brightnessMin;
+    case 'overexposed': return issue.value > p.brightnessMax;
+    case 'blank-page': return issue.value < p.blankStdevMax;
+    case 'low-contrast': return issue.value < p.contrastFgMin;
+    default: return false;
+  }
 }
 
 /** Colour spaces whose channels already read as brightness. */

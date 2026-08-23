@@ -76,7 +76,8 @@
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0",
-    "pdfjs-dist": "^5.4.624"
+    "pdfjs-dist": "^5.4.624",
+    "@napi-rs/canvas": "~0.1.95"
   },
   "keywords": [
     "image-quality",

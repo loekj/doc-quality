@@ -64,7 +64,27 @@ const ocrResult = await callTextract(buffer);
 
 ### Monotonic Guarantee
 
-If `preflight(x)` rejects, `checkQuality(x)` **always** rejects. The reverse is not true — preflight is slightly more lenient to account for Canvas vs sharp measurement differences. This means preflight never gives false confidence: if it says the image is bad, it *is* bad.
+If `preflight(x)` rejects, `checkQuality(x)` **always** rejects. The reverse is not
+true -- preflight is slightly more lenient to account for Canvas vs sharp
+measurement differences. This means preflight never gives false confidence: if it
+says the image is bad, it *is* bad.
+
+This is **enforced**, not hoped for. The two layers disagree in kind: preflight is
+a binary gate where any issue rejects, while the backend multiplies penalties into
+a score. A single issue penalised 0.7 clears a 0.5 pass threshold, so each of
+preflight's checks could fire on the backend and the image still pass -- an
+overexposed page really did preflight-reject and then score 0.70 PASS. So the
+backend fails outright whenever a measurement crosses preflight's own, more
+lenient, threshold. Both layers read those numbers from the same module, so
+loosening one loosens the other.
+
+Setting `thresholds.passThreshold` yourself disables that floor: naming your own
+bar means you own the verdict.
+
+`test/preflight-guarantee.test.ts` runs the real `preflight()` against the real
+`checkQuality()` across every rejection reason and a grid of desk colours and
+document coverages. It is the thing that notices if boundary cropping, or a
+threshold change, breaks the contract.
 
 ### When to Use Which
 
