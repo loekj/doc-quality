@@ -5,8 +5,17 @@ import { analyzeTextLines } from './text-lines.js';
 
 // ── Severity scaling ─────────────────────────────────────────────
 
-/** Beyond this multiple of the threshold, extra severity stops mattering. */
-const SEVERITY_CAP = 4;
+/**
+ * Beyond this multiple of the threshold, extra severity stops mattering.
+ *
+ * The exponent form is defensible without labels — a defect twice as far past
+ * its threshold should cost more than one barely over it, and the penalty is
+ * unchanged *at* the threshold either way. The steepness is not: at a cap of 4
+ * a single blurry page scored 0.06, which is a stronger claim than the evidence
+ * supports. Three keeps a severe single defect able to fail on its own while
+ * leaving room for the feature report to say where this really belongs.
+ */
+const SEVERITY_CAP = 3;
 
 /**
  * Scale a penalty by how badly the threshold was missed.
@@ -37,7 +46,7 @@ export function analyzeResolution(ctx: AnalysisContext, t: Thresholds): Issue | 
     message: `Resolution too low (${mp.toFixed(2)} MP, minimum ${t.resolutionMin} MP)`,
     value: mp,
     threshold: t.resolutionMin,
-    penalty: 0.5,
+    penalty: gradedPenalty(0.5, mp > 0 ? t.resolutionMin / mp : SEVERITY_CAP),
   };
 }
 
@@ -70,7 +79,7 @@ export function analyzeBrightness(ctx: AnalysisContext, t: Thresholds): Issue | 
       message: `Image too dark (brightness ${avg.toFixed(0)}, minimum ${t.brightnessMin})`,
       value: avg,
       threshold: t.brightnessMin,
-      penalty: 0.6,
+      penalty: gradedPenalty(0.6, avg > 0 ? t.brightnessMin / avg : SEVERITY_CAP),
     };
   }
   if (avg > t.brightnessMax) {
@@ -110,7 +119,7 @@ export function analyzeSharpness(ctx: AnalysisContext, t: Thresholds): Issue | n
     message: `Image is blurry (sharpness ${ctx.laplacian.stdev.toFixed(1)}, minimum ${t.sharpnessMin})`,
     value: ctx.laplacian.stdev,
     threshold: t.sharpnessMin,
-    penalty: 0.5,
+    penalty: gradedPenalty(0.5, ctx.laplacian.stdev > 0 ? t.sharpnessMin / ctx.laplacian.stdev : SEVERITY_CAP),
   };
 }
 
@@ -127,7 +136,7 @@ export function analyzeEdgeDensity(ctx: AnalysisContext, t: Thresholds): Issue |
       message: `No legible content detected (edge density ${(density * 100).toFixed(1)}%, minimum ${(t.edgeDensityMin * 100).toFixed(1)}%)`,
       value: density,
       threshold: t.edgeDensityMin,
-      penalty: 0.6,
+      penalty: gradedPenalty(0.6, density > 0 ? t.edgeDensityMin / density : SEVERITY_CAP),
     };
   }
   if (density > t.edgeDensityMax) {
@@ -155,7 +164,7 @@ export function analyzeTextContrast(foregroundRatio: number, t: Thresholds): Iss
       message: `Very low contrast (${(foregroundRatio * 100).toFixed(1)}% foreground, minimum ${(t.contrastMin * 100).toFixed(1)}%)`,
       value: foregroundRatio,
       threshold: t.contrastMin,
-      penalty: 0.6,
+      penalty: gradedPenalty(0.6, foregroundRatio > 0 ? t.contrastMin / foregroundRatio : SEVERITY_CAP),
     };
   }
   if (foregroundRatio > t.contrastMax) {
@@ -243,7 +252,7 @@ export function analyzePerspectiveSharpness(ctx: AnalysisContext, t: Thresholds)
     message: `Uneven focus — possible angle (ratio ${ratio.toFixed(1)}, max ${t.uniformitySharpnessRatio})`,
     value: ratio,
     threshold: t.uniformitySharpnessRatio,
-    penalty: 0.65,
+    penalty: gradedPenalty(0.65, t.uniformitySharpnessRatio > 0 ? ratio / t.uniformitySharpnessRatio : SEVERITY_CAP),
   };
 }
 
@@ -270,7 +279,7 @@ export function analyzeDpi(ctx: AnalysisContext, t: Thresholds): Issue | null {
     message: `Low DPI (${dpi}, minimum ${t.dpiMin})`,
     value: dpi,
     threshold: t.dpiMin,
-    penalty: 0.7,
+    penalty: gradedPenalty(0.7, dpi > 0 ? t.dpiMin / dpi : SEVERITY_CAP),
   };
 }
 
@@ -404,7 +413,7 @@ export function analyzeShadow(ctx: AnalysisContext, t: Thresholds): Issue | null
     message: `Shadow detected at edges (brightness diff ${metrics.diff.toFixed(0)}, max ${t.shadowBrightnessDiff})`,
     value: metrics.diff,
     threshold: t.shadowBrightnessDiff,
-    penalty: 0.7,
+    penalty: gradedPenalty(0.7, t.shadowBrightnessDiff > 0 ? metrics.diff / t.shadowBrightnessDiff : SEVERITY_CAP),
   };
 }
 
@@ -571,7 +580,7 @@ export function analyzeSkew(ctx: AnalysisContext, t: Thresholds): Issue | null {
     message: `Document appears skewed (${angleDeg.toFixed(1)}°, max ${t.skewAngleMax}°)`,
     value: angleDeg,
     threshold: t.skewAngleMax,
-    penalty: 0.85,
+    penalty: gradedPenalty(0.85, t.skewAngleMax > 0 ? angleDeg / t.skewAngleMax : SEVERITY_CAP),
   };
 }
 
@@ -655,7 +664,7 @@ export function analyzeFFTBlur(ctx: AnalysisContext, t: Thresholds): Issue | nul
     message: `Spectral blur detected (high-freq energy ${(ratio * 100).toFixed(1)}%, minimum ${(t.fftBlurHighFreqMin * 100).toFixed(1)}%)`,
     value: ratio,
     threshold: t.fftBlurHighFreqMin,
-    penalty: 0.6,
+    penalty: gradedPenalty(0.6, ratio > 0 ? t.fftBlurHighFreqMin / ratio : SEVERITY_CAP),
   };
 }
 
@@ -711,7 +720,7 @@ export function analyzeDimBackground(ctx: AnalysisContext, t: Thresholds): Issue
     message: `Document background too dim (p90 brightness ${p90}, minimum ${t.backgroundP90Min})`,
     value: p90,
     threshold: t.backgroundP90Min,
-    penalty: 0.75,
+    penalty: gradedPenalty(0.75, p90 > 0 ? t.backgroundP90Min / p90 : SEVERITY_CAP),
   };
 }
 
@@ -858,7 +867,7 @@ export function analyzeZoneQuality(ctx: AnalysisContext, t: Thresholds): Issue |
       message: `Uneven zone brightness (spread ${brightDiff.toFixed(0)}, max ${t.zoneBrightnessMaxDiff})`,
       value: brightDiff,
       threshold: t.zoneBrightnessMaxDiff,
-      penalty: 0.7,
+      penalty: gradedPenalty(0.7, t.zoneBrightnessMaxDiff > 0 ? brightDiff / t.zoneBrightnessMaxDiff : SEVERITY_CAP),
     };
   }
 
@@ -869,7 +878,7 @@ export function analyzeZoneQuality(ctx: AnalysisContext, t: Thresholds): Issue |
     message: `Uneven zone sharpness (ratio ${sharpRatio.toFixed(2)}, min ${t.zoneSharpnessMinRatio})`,
     value: sharpRatio,
     threshold: t.zoneSharpnessMinRatio,
-    penalty: 0.7,
+    penalty: gradedPenalty(0.7, sharpRatio > 0 ? t.zoneSharpnessMinRatio / sharpRatio : SEVERITY_CAP),
   };
 }
 

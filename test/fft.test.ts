@@ -105,7 +105,9 @@ describe('Built-in FFT analyzers', () => {
     });
     const issue = result.issues.find((i) => i.analyzer === 'fftBlur');
     expect(issue).toBeDefined();
-    expect(issue!.penalty).toBe(0.6);
+    // Graded by severity: 0.6 at the threshold, harsher the further past it.
+    expect(issue!.penalty).toBeLessThanOrEqual(0.6);
+    expect(issue!.penalty).toBeGreaterThan(0);
   });
 
   it('sharp noisy image does NOT trigger fftBlur', async () => {

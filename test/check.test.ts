@@ -65,7 +65,10 @@ describe('checkQuality', () => {
     const result = await checkQuality(buffer);
     const issue = result.issues.find((i) => i.analyzer === 'resolution');
     expect(issue).toBeDefined();
-    expect(issue!.penalty).toBe(0.5);
+    // Penalties are graded by severity: 0.5 at the threshold, harsher below it.
+    // 100x100 is 0.01 MP against a 0.3 MP floor, so it lands at the cap.
+    expect(issue!.penalty).toBeLessThanOrEqual(0.5);
+    expect(issue!.penalty).toBeGreaterThan(0);
   });
 
   it('detects dark images', async () => {
@@ -186,11 +189,21 @@ describe('custom thresholds', () => {
   });
 
   it('overrides pass threshold', async () => {
-    const buffer = await makeImage({ width: 100, height: 100 });
-    const lenient = await checkQuality(buffer, {
-      thresholds: { passThreshold: 0.01 },
+    // Assert the mechanism, not a number: penalties are graded now, so a fixed
+    // expected score would only be testing today's calibration.
+    const buffer = await makeNoisyImage(800, 600);
+    const { score } = await checkQuality(buffer, { mode: 'fast' });
+    expect(score).toBeGreaterThan(0);
+    expect(score).toBeLessThan(1);
+
+    const above = await checkQuality(buffer, {
+      mode: 'fast', thresholds: { passThreshold: Math.min(1, score + 0.05) },
     });
-    expect(lenient.pass).toBe(true);
+    const below = await checkQuality(buffer, {
+      mode: 'fast', thresholds: { passThreshold: Math.max(0, score - 0.05) },
+    });
+    expect(above.pass).toBe(false);
+    expect(below.pass).toBe(true);
   });
 });
 
@@ -471,7 +484,8 @@ describe('configurable penalties', () => {
     const defaultIssue = defaultResult.issues.find((i) => i.analyzer === 'resolution');
     const overriddenIssue = overriddenResult.issues.find((i) => i.analyzer === 'resolution');
 
-    expect(defaultIssue!.penalty).toBe(0.5);
+    // The default is graded by severity; the override replaces it outright.
+    expect(defaultIssue!.penalty).toBeLessThan(0.9);
     expect(overriddenIssue!.penalty).toBe(0.9);
     expect(overriddenResult.score).toBeGreaterThan(defaultResult.score);
   });
@@ -870,11 +884,16 @@ describe('penalty overrides and advisory issues', () => {
   }, 60_000);
 
   it('still applies overrides to ordinary issues', async () => {
-    const dark = await sharp({
-      create: { width: 900, height: 1200, channels: 3, background: { r: 20, g: 20, b: 20 } },
-    }).jpeg().toBuffer();
-    const strict = await checkQuality(dark, { mode: 'fast', timeout: 0, penalties: { brightness: 0.1 } });
-    const lenient = await checkQuality(dark, { mode: 'fast', timeout: 0, penalties: { brightness: 0.9 } });
+    // Textured, so the only complaint is brightness. A flat dark rectangle
+    // also trips blank-page and edge density, and those grade to near zero,
+    // leaving nothing for an override to move.
+    const noisy = await makeNoisyImage(900, 1200);
+    const dim = await sharp(noisy).modulate({ brightness: 0.25 }).jpeg().toBuffer();
+    const withBrightness = await checkQuality(dim, { mode: 'fast', timeout: 0 });
+    expect(withBrightness.issues.some((i) => i.analyzer === 'brightness')).toBe(true);
+
+    const strict = await checkQuality(dim, { mode: 'fast', timeout: 0, penalties: { brightness: 0.1 } });
+    const lenient = await checkQuality(dim, { mode: 'fast', timeout: 0, penalties: { brightness: 0.9 } });
     expect(strict.score).toBeLessThan(lenient.score);
   }, 60_000);
 });
