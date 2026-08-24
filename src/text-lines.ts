@@ -103,6 +103,23 @@ const X_HEIGHT_INK_SHARE = 0.5;
 /** Guard against pathological inputs. */
 const MAX_LINES = 4000;
 /**
+ * A band is rejected as non-text when it is both taller than this share of the
+ * page *and* far taller than the page's other bands.
+ *
+ * Sparse documents — ID cards, passport data pages, driving licences — are
+ * mostly background with a portrait photo and a few short fields. The photo is
+ * solid ink after binarisation, so it projects as one enormous band and was
+ * measured as a single text line with an x-height of 383, 1399, even 2218
+ * pixels. Everything downstream then described that block rather than the text.
+ *
+ * Both conditions are needed. A page-height fraction alone throws away the only
+ * line on a one-line image, where the single band legitimately spans a fifth of
+ * the height; a multiple of the median alone cannot help when the whole page is
+ * one merged band.
+ */
+const MAX_LINE_HEIGHT_RATIO = 0.15;
+const MAX_LINE_HEIGHT_MULTIPLE = 4;
+/**
  * Above this ink share the darker class is the background, not the text —
  * the page is white-on-black. Measured: normal pages run 0.004-0.045 ink,
  * an inverted page reads 0.96.
@@ -147,6 +164,11 @@ function otsu(hist: Uint32Array, total: number): number {
     }
   }
   return threshold;
+}
+
+/** Absolute ceiling on a text-line band, as a share of the page. */
+function pageHeightLimit(height: number): number {
+  return height * MAX_LINE_HEIGHT_RATIO;
 }
 
 function median(values: number[]): number {
@@ -248,21 +270,33 @@ export function analyzeTextLines(
 
   const minInk = Math.max(2, Math.round(width * MIN_LINE_INK_RATIO));
 
-  const lines: TextLine[] = [];
+  // Collect candidate bands before measuring any of them: whether a band is
+  // implausibly tall can only be judged against the others on the page.
+  const bands: Array<[number, number]> = [];
   let bandStart = -1;
-
   for (let y = 0; y <= height; y++) {
     const isTextRow = y < height && rowInk[y] >= minInk;
-
     if (isTextRow && bandStart === -1) {
       bandStart = y;
       continue;
     }
     if (isTextRow || bandStart === -1) continue;
-
-    measureBand(lines, pixels, width, threshold, bandStart, y - 1, rowInk, thresholds);
+    bands.push([bandStart, y - 1]);
     bandStart = -1;
-    if (lines.length >= MAX_LINES) break;
+    if (bands.length >= MAX_LINES) break;
+  }
+
+  const heights = bands.map(([a, b]) => b - a + 1);
+  const medianHeight = median(heights);
+  const heightLimit = Math.max(
+    pageHeightLimit(height),
+    medianHeight * MAX_LINE_HEIGHT_MULTIPLE,
+  );
+
+  const lines: TextLine[] = [];
+  for (const [top, bottom] of bands) {
+    if (bottom - top + 1 > heightLimit) continue;
+    measureBand(lines, pixels, width, threshold, top, bottom, rowInk, thresholds);
   }
 
   if (lines.length === 0) return null;
@@ -297,6 +331,7 @@ function measureBand(
   const bandHeight = bottom - top + 1;
   // One or two rows of ink is a rule, a speck or a table border, not a line.
   if (bandHeight < 3) return;
+
 
   // The lowercase body is where the ink concentrates; ascenders and descenders
   // only reach a minority of rows.
