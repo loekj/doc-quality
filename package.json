@@ -47,7 +47,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "diff": "node scripts/diff-verdicts.mjs"
   },
   "peerDependencies": {
     "sharp": ">=0.32.0",

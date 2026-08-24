@@ -795,6 +795,42 @@ npm install doc-quality
 
 All peer dependencies are optional. The preflight subpath (`doc-quality/preflight`) has zero native dependencies and works without sharp installed. The main entry point throws at runtime if sharp is not available.
 
+## Checking a Change Against the Previous Build
+
+```bash
+npm run diff                              # against the previous commit
+npm run diff -- --baseline main
+npm run diff -- --images ./corpus --labels ./corpus/labels.json
+```
+
+Builds another revision in a temporary worktree, runs both against the same
+images, and reports what moved:
+
+```
+27 cases, 27 with an expected verdict | baseline: c2e14e9
+
+── thorough ──
+   expected verdicts: baseline 13/27 (48%)   candidate 27/27 (100%)
+   14 verdict flip(s):
+     clean 300dpi             0.32  -> 1     now PASSES  (correct)
+       was: uneven-zone-sharpness, fft-moire, directional-blur
+       now: none
+```
+
+It exits non-zero when the candidate agrees with fewer expected verdicts than
+the baseline, so it can gate a change.
+
+This exists because a differential run found, in a single pass, something the
+test suite had missed across fourteen commits: **no single issue could fail an
+image**, since every penalty sat at or above the pass threshold. A page blurred
+until it was unreadable, with nothing else wrong, scored exactly 0.5 and passed.
+Tests could not see it — they were written against the same assumptions as the
+code. An older build has no such blind spot.
+
+The default battery is synthetic and its expected verdicts are a judgement, not
+ground truth; read the accuracy figures as a direction. Point `--images` at real
+files and the same comparison runs on those instead.
+
 ## Training Your Own Model
 
 ```bash
