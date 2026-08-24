@@ -464,6 +464,17 @@ export async function runPipeline(
     timings.ocrConfidence = performance.now() - t;
   }
 
+  // ── Drop analyzers this preset does not apply ───────────────
+  //
+  // After every analyzer has run, so the feature vector still carries their
+  // measurements for training. Only scoring and reporting are affected.
+  if (thresholds.skipAnalyzers.length > 0) {
+    const skip = new Set<AnalyzerName>(thresholds.skipAnalyzers);
+    for (let i = issues.length - 1; i >= 0; i--) {
+      if (skip.has(issues[i].analyzer)) issues.splice(i, 1);
+    }
+  }
+
   // ── Score ───────────────────────────────────────────────────
   let score = 1.0;
   let usedScorer = false;

@@ -47,6 +47,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   textLineContrastMin: 40,
   textStrokeSharpnessMin: 0.4,
   textIllegibleFractionMax: 0.15,
+  skipAnalyzers: [],
 };
 
 /** Concrete preset names (excludes 'auto') */
@@ -79,23 +80,44 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
   },
 
   /**
-   * Cards — ID cards, credit cards, passports, driver's licenses.
-   * Small format where every detail matters. Strict on everything.
+   * Identity documents — ID cards, driving licences, passport data pages,
+   * credit cards.
+   *
+   * These were previously treated as "a document, but stricter", which is
+   * backwards. A card is not a dense page of text: it is mostly background,
+   * a portrait photograph and a handful of short fields, often in two columns.
+   * Tightening the ink-coverage checks made a clean 300 DPI card scan score
+   * 0.02, and every good card failed.
+   *
+   * So the coverage checks are skipped rather than tightened, and what remains
+   * is what actually degrades a card: focus, resolution, exposure, shadow and
+   * compression. The skipped analyzers still run and still reach the feature
+   * vector, so a trained model loses nothing.
    */
   card: {
-    resolutionMin: 0.3,
+    // A card at 300 DPI is 0.65 MP; at 200 DPI it is 0.29 MP and still perfectly
+    // readable. The document floor of 0.3 rejected every capture under 200 DPI
+    // purely because the format is small.
+    resolutionMin: 0.15,
     brightnessMin: 60,
-    brightnessMax: 240,
-    sharpnessMin: 15,
-    edgeDensityMin: 0.02,
-    contrastMin: 0.02,
-    contrastMax: 0.80,
-    fileSizeMin: 30_000,
-    uniformitySharpnessRatio: 3.0,
+    brightnessMax: 246,
+    // Measured on clean card scans: the Laplacian spread runs 15.6 at 600 DPI
+    // to 21.7 at 150 DPI, so the document threshold of 15 sits underneath a
+    // perfectly sharp card and fired on good ones. Blurred by sigma 1 it is
+    // 8.7, by sigma 2 it is 2.1. Eight separates those without touching a sharp
+    // card. The global Laplacian is a weak blur signal on sparse content;
+    // `deep` mode's contrast-normalised stroke sharpness is the better one,
+    // running 1.38 clean against 0.19 at sigma 2.
+    sharpnessMin: 8,
     uniformityBrightnessDiff: 35,
-    passThreshold: 0.6,
+    passThreshold: 0.5,
     fftJpegGridMax: 0.3,
-    zoneSharpnessMinRatio: 0.3, // Small cards — tighter uniformity expected
+    // Ink coverage says nothing about a card, and a portrait beside text is
+    // legitimately less uniform than a page of paragraphs. Text geometry
+    // assumes rows of continuous prose, which card fields are not. Absolute
+    // file size is a thumbnail check that a card fails on merit — clean scans
+    // measured 4 to 34 KB — and bits-per-pixel already covers a starved file.
+    skipAnalyzers: ['edgeDensity', 'textContrast', 'perspective', 'textGeometry', 'fileSize'],
   },
 };
 

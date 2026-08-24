@@ -265,6 +265,20 @@ export interface Thresholds {
   textStrokeSharpnessMin: number;
   /** Share of lines allowed to fail legibility before the page is flagged (default: 0.15). */
   textIllegibleFractionMax: number;
+  /**
+   * Analyzers whose issues are dropped before scoring (default: none).
+   *
+   * Some checks measure how much of the page is covered in ink, and that is a
+   * reasonable proxy for quality only on a page of text. An ID card, a driving
+   * licence or a passport data page is mostly background, a portrait and a few
+   * short fields, so `low-edge-density` and `low-contrast` fire on a perfectly
+   * good one — a clean 300 DPI card scan scored 0.02.
+   *
+   * The analyzers still run and still populate the feature vector, so a trained
+   * model keeps everything. Only the rule-based score and the reported issues
+   * are affected.
+   */
+  skipAnalyzers: AnalyzerName[];
 }
 
 /** Quality check result */

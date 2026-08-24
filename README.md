@@ -362,7 +362,42 @@ rather than the frame, which makes this considerably more reliable for photos.
 |---|---|---|
 | `document` | Tax forms, contracts, letters | Default thresholds |
 | `receipt` | Thermal paper, register receipts | Brightness, sharpness, resolution |
-| `card` | ID cards, credit cards, driving licences | Edge density, contrast, sharpness uniformity |
+| `card` | ID cards, driving licences, passport data pages | Sees a portrait beside short fields, not a page of text |
+
+### Telling the checker what it is looking at
+
+Pass `preset` when you know the document type. It is not only a set of tighter
+numbers — a preset can also switch analyzers off, because some checks measure
+the wrong thing for a given shape of document.
+
+```typescript
+await checkQuality(buffer, { preset: 'card' });     // ID card, licence, passport page
+await checkQuality(buffer, { preset: 'receipt' });  // thermal roll
+await checkQuality(buffer, { preset: 'document' }); // a page of text
+```
+
+An identity document is mostly background, a portrait photograph and a handful
+of short fields. `low-edge-density` and `low-contrast` measure how much of the
+page is covered in ink, which is a fair proxy for quality on a page of
+paragraphs and meaningless on a card: a clean 300 DPI card scan scored **0.02**.
+The `card` preset used to make that worse, since it was written as "a document
+but stricter" and tightened exactly those checks.
+
+It now skips them and keeps what actually degrades a card — focus, resolution,
+exposure, shadow, compression — with thresholds measured against card captures
+rather than inherited from full pages:
+
+| | document | card | why |
+| --- | --- | --- | --- |
+| `resolutionMin` | 0.3 MP | 0.15 MP | A card at 300 DPI is only 0.65 MP |
+| `sharpnessMin` | 15 | 8 | Clean cards measure 15.6-21.7; the document floor sat underneath a sharp one |
+| `fileSize` | on | skipped | Clean card scans are 4-34 KB on merit |
+| `edgeDensity`, `textContrast` | on | skipped | Ink coverage says nothing about a card |
+| `perspective`, `textGeometry` | on | skipped | A portrait beside text is legitimately uneven; fields are not prose |
+
+Skipped analyzers still run and still populate the feature vector, so a trained
+model loses nothing — only the rule-based score and the reported issues change.
+`thresholds.skipAnalyzers` lets you do the same for any preset.
 
 ## Thresholds
 
