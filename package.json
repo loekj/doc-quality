@@ -48,7 +48,8 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "diff": "node scripts/diff-verdicts.mjs"
+    "diff": "node scripts/diff-verdicts.mjs",
+    "backup-labels": "node scripts/backup-labels.mjs"
   },
   "peerDependencies": {
     "sharp": ">=0.32.0",

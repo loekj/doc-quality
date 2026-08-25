@@ -17,7 +17,7 @@ console.log('Starting label-server, PORT=' + process.env.PORT + ', LABELS_PATH='
  */
 
 import { createServer } from 'node:http';
-import { readdir, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readdir, readFile, writeFile, appendFile, rename, mkdir } from 'node:fs/promises';
 import { join, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,19 +47,69 @@ const MIME = {
   '.heif': 'image/heif',
 };
 
-/** Load or create labels.json */
+/** Append-only record of every save, beside labels.json. */
+const JOURNAL_PATH = LABELS_PATH.replace(/\.json$/, '') + '.jsonl';
+
+/**
+ * Load labels, falling back to the journal if the main file is missing or has
+ * been corrupted by an interrupted write.
+ */
 async function loadLabels() {
   try {
-    const data = await readFile(LABELS_PATH, 'utf-8');
-    return JSON.parse(data);
-  } catch {
+    return JSON.parse(await readFile(LABELS_PATH, 'utf-8'));
+  } catch (err) {
+    const fromJournal = await replayJournal();
+    if (Object.keys(fromJournal).length > 0) {
+      console.warn(`labels.json unreadable (${err.code ?? err.message}); ` +
+        `recovered ${Object.keys(fromJournal).length} entries from the journal`);
+      return fromJournal;
+    }
     return {};
   }
 }
 
-/** Save labels.json */
-async function saveLabels(labels) {
-  await writeFile(LABELS_PATH, JSON.stringify(labels, null, 2) + '\n');
+/** Rebuild the label set from the journal. Later lines win. */
+async function replayJournal() {
+  const labels = {};
+  let text;
+  try {
+    text = await readFile(JOURNAL_PATH, 'utf-8');
+  } catch {
+    return labels;
+  }
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const { path, entry } = JSON.parse(line);
+      if (path) labels[path] = entry;
+    } catch {
+      // A torn final line is expected after a crash mid-append. Skip it.
+    }
+  }
+  return labels;
+}
+
+/**
+ * Persist labels.
+ *
+ * The journal is appended first and the snapshot written second, because an
+ * append cannot destroy what is already there while a rewrite can: the previous
+ * version was a plain writeFile, which truncates before it writes, so a crash
+ * or a container stopping mid-save left an empty or half-written file and every
+ * label with it. The snapshot goes to a temp file and is renamed into place,
+ * which is atomic on the same filesystem.
+ */
+async function saveLabels(labels, changed) {
+  if (changed) {
+    try {
+      await appendFile(JOURNAL_PATH, JSON.stringify(changed) + '\n');
+    } catch (err) {
+      console.warn('Journal append failed:', err.message);
+    }
+  }
+  const tmp = `${LABELS_PATH}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(labels, null, 2) + '\n');
+  await rename(tmp, LABELS_PATH);
 }
 
 /** Deterministic shuffle (Fisher-Yates with seeded PRNG) */
@@ -175,7 +225,7 @@ const server = createServer(async (req, res) => {
         notes: body.notes ?? '',
         timestamp: new Date().toISOString(),
       };
-      await saveLabels(labels);
+      await saveLabels(labels, { path: body.path, entry: labels[body.path] });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
       return;
@@ -273,6 +323,32 @@ const server = createServer(async (req, res) => {
 
 // Ensure labels directory exists (for volume mounts)
 try { await mkdir(dirname(LABELS_PATH), { recursive: true }); } catch {}
+
+/**
+ * Say plainly whether labelling work will survive a redeploy.
+ *
+ * A container's filesystem is thrown away when it restarts unless a volume is
+ * mounted, and Railway names that mount in RAILWAY_VOLUME_MOUNT_PATH. Writing
+ * labels outside it looks like it is working right up until the moment the
+ * work is gone, which is a bad way to find out.
+ */
+function reportDurability() {
+  const onRailway = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+  const volume = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  if (!onRailway) return;
+  if (volume && LABELS_PATH.startsWith(volume)) {
+    console.log(`Labels are on the volume at ${volume} and survive redeploys.`);
+    return;
+  }
+  console.warn('');
+  console.warn('  WARNING: labels are NOT on a mounted volume.');
+  console.warn(`  ${LABELS_PATH} lives on the container filesystem, which is`);
+  console.warn('  discarded on every redeploy. Mount a volume and point');
+  console.warn('  LABELS_PATH at it, and back up now:');
+  console.warn('    node scripts/backup-labels.mjs <this-server-url>');
+  console.warn('');
+}
+reportDurability();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Labeling server running on 0.0.0.0:${PORT}`);
