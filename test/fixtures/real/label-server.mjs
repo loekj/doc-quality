@@ -81,7 +81,11 @@ async function replayJournal() {
     if (!line.trim()) continue;
     try {
       const { path, entry } = JSON.parse(line);
-      if (path) labels[path] = entry;
+      if (!path) continue;
+      // A null entry is an undo. Replaying it as a value would resurrect the
+      // label the journal exists to have removed.
+      if (entry === null) delete labels[path];
+      else labels[path] = entry;
     } catch {
       // A torn final line is expected after a crash mid-append. Skip it.
     }
@@ -217,9 +221,24 @@ const server = createServer(async (req, res) => {
     if (pathname === '/api/label' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req));
       const labels = await loadLabels();
+
+      // "unlabeled" removes the entry rather than storing a tombstone. Undo has
+      // to leave the image genuinely ungraded, or it reappears as labelled on
+      // the next load and never gets looked at again.
+      if (body.label === 'unlabeled') {
+        delete labels[body.path];
+        await saveLabels(labels, { path: body.path, entry: null });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, removed: true }));
+        return;
+      }
+
       labels[body.path] = {
         label: body.label,
-        score: body.score ?? null,
+        // A skip is "I am not judging this one", which is not the same as a
+        // score of zero. Recording one made every skipped image train as
+        // unusable; extract-features drops entries whose score is null.
+        score: body.label === 'skip' ? null : (body.score ?? null),
         category: body.category ?? null,
         issues: body.issues ?? [],
         notes: body.notes ?? '',
