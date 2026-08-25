@@ -66,7 +66,10 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
   receipt: {
     resolutionMin: 0.5,
     brightnessMin: 80,
-    brightnessMax: 220,
+    // Thermal paper is close to white and a receipt is mostly blank space, so
+    // its mean brightness sits just under the ceiling tuned for inked pages.
+    // A clean 203 DPI receipt scan measured 246 and was called overexposed.
+    brightnessMax: 248,
     sharpnessMin: 20,
     fileSizeMin: 50_000,
     passThreshold: 0.6,

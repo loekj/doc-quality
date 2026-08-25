@@ -697,10 +697,25 @@ const bounds = await detectDocumentBounds(buffer);
 // { x: 144, y: 176, width: 1512, height: 1848, edgesDetected: 4 } or null
 ```
 
-Detection is deliberately conservative: five safety gates, and null unless all
-of them pass. Measured against known rectangles it lands within 1% of the truth
-(IoU 0.987-0.998), and it declines outright on a near-white surface where there
-is no transition to find.
+Two strategies run in order. A ray scan looks for a dark-to-bright step at the
+frame margins; it is conservative, but it only sees the outer 20% of the
+picture, so a document whose edge lies further in is invisible to it. That is
+the common case for a card or a receipt photographed on a desk, which is exactly
+when cropping matters most.
+
+When the ray scan declines, or finds only some of the sides, the frame is
+thresholded and the largest bright region is taken instead. Its bounding box is
+accepted only if the region behaves like a sheet of paper: a reasonable share of
+the frame, solidly filling its own bounding box, meaningfully brighter than its
+surroundings, a sane aspect ratio, and pressed against no more than one side of
+the frame. That last gate matters — without it, one half of a gradient or a
+two-tone image was detected as a document covering exactly half the picture.
+
+Measured against known rectangles, detection lands within 1% of the truth (IoU
+0.987-0.999) across desk colours from black to mid-grey, down to a document
+covering 40% of the frame's short side. It declines on a near-white surface
+where there is no step to find, and on flat, noisy, speckled and gradient
+images.
 
 **Cropping needs all four edges.** An undetected edge falls back to the frame
 edge, so a region built from two or three still contains whatever sat along the

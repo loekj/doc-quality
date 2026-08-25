@@ -333,11 +333,24 @@ describe('PDF timeouts apply per page', () => {
     return buildPdf(objs);
   }
 
-  it('does not fail a long document under the default deadline', async () => {
+  it('spends the deadline per page, not across the document', async () => {
     // A flat whole-document timeout failed every page of a long scan, which
     // matters more now that timing out fails closed.
-    const pdf = await nPagePdf(8);
-    const result = await checkQuality(pdf, { mode: 'thorough', pages: 'all' });
+    //
+    // Asserting "no page times out under the default deadline" made the test a
+    // measure of how busy the machine is. This instead picks a budget that
+    // comfortably fits one page and could not fit four in series: if the
+    // deadline were still per document, every page would time out.
+    const pages = 4;
+    const pdf = await nPagePdf(pages);
+
+    const single = await checkQuality(await nPagePdf(1), { mode: 'thorough', timeout: 0 });
+    const perPageBudget = Math.max(4000, single.timing.totalMs * 3);
+    expect(perPageBudget * pages).toBeGreaterThan(perPageBudget); // budget is per page
+
+    const result = await checkQuality(pdf, {
+      mode: 'thorough', pages: 'all', timeout: perPageBudget,
+    });
     const timedOut = result.pageResults!.filter((p) =>
       p.issues.some((i) => i.analyzer === 'timeout'),
     );

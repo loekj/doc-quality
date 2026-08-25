@@ -114,6 +114,11 @@ export async function runPipeline(
     isWorthCropping(builtinBounds, meta.width || 0, meta.height || 0)
   ) {
     try {
+      // PNG, not the source format. Re-encoding a JPEG crop stamps fresh
+      // compression artifacts into it and shifts the 8x8 block grid off the
+      // original alignment, so the JPEG checks then reported damage this
+      // library had just caused. Downstream sees a PNG and skips them, which
+      // is the honest outcome: these are no longer the file's own pixels.
       analysisSource = await sharp(analysisSource)
         .extract({
           left: builtinBounds.x,
@@ -121,6 +126,7 @@ export async function runPipeline(
           width: builtinBounds.width,
           height: builtinBounds.height,
         })
+        .png()
         .toBuffer();
       croppedRegion = builtinBounds;
     } catch {
@@ -187,7 +193,9 @@ export async function runPipeline(
       density: options?.densityOverride ?? meta.density,
       channels: meta.channels,
       space: meta.space,
-      format: meta.format,
+      // The analysed pixels' format, which differs from the file's own when a
+      // crop happened. JPEG-specific checks must follow the pixels.
+      format: analysisMeta.format,
     },
   };
 

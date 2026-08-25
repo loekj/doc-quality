@@ -122,12 +122,37 @@ describe('detectDocumentBounds', () => {
     expect(bounds).toBeNull();
   });
 
-  it('returns null when detected region is too small', async () => {
-    // Tiny bright area in center of mostly dark image — will fail 40% gate
+  it('finds a small but clearly bounded document', async () => {
+    // The ray scan only sees the outer 20% of the frame, so it declines here
+    // and the region finder answers instead. A bright rectangle centred on a
+    // dark surface is a document whatever share of the picture it occupies,
+    // and this used to be asserted as null — pinning the ray scan's blind spot
+    // as if it were the wanted behaviour. Cropping to it is the whole point:
+    // otherwise the surface is graded along with the document.
     const buffer = await makeDocOnBackground(400, 400, 60, 240, 0.35);
     const bounds = await detectDocumentBounds(buffer);
-    // Region would be ~30% of dimensions, below 40% threshold
-    expect(bounds).toBeNull();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width).toBeLessThan(400);
+    expect(bounds!.height).toBeLessThan(400);
+    expect(bounds!.edgesDetected).toBe(4);
+  });
+
+  it('declines on shapes that are not a bordered document', async () => {
+    // A region pressed against several sides of the frame is one half of a
+    // gradient or a two-tone image, and both were detected as a document
+    // covering exactly half the picture.
+    const half = async (fn: (x: number, y: number) => number) => {
+      const w = 600, h = 450;
+      const px = Buffer.alloc(w * h * 3);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const v = fn(x, y);
+        const o = (y * w + x) * 3;
+        px[o] = px[o + 1] = px[o + 2] = v;
+      }
+      return sharp(px, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
+    };
+    expect(await detectDocumentBounds(await half((x) => Math.round((255 * x) / 600)))).toBeNull();
+    expect(await detectDocumentBounds(await half((x) => (x < 300 ? 240 : 30)))).toBeNull();
   });
 
   it('detects receipt on dark surface and infers receipt preset', async () => {
