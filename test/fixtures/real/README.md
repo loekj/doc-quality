@@ -73,13 +73,14 @@ destination, and the only copy that outlives the service.
 ## Scoring modes
 
 The button in the top bar cycles three ways to score the same thing, remembered
-per device.
+per device. A device that has already chosen keeps its choice; only a fresh one
+gets the default.
 
+- **1-5** (default) — adds *Marginal*, the judgement four bands cannot express.
+  Centres are 0.10, 0.30, **0.48**, 0.70, 0.90.
 - **1-4** — four buttons saving 0.12, 0.37, 0.62, 0.87. These are the tier names
   used everywhere else: the fixture folders, `TIER_LABELS` in
   `extract-features.mjs`, the per-tier buckets in `train-model.py`.
-- **1-5** — adds *Marginal*, the judgement four bands cannot express. Centres are
-  0.10, 0.30, **0.48**, 0.70, 0.90.
 - **0-100** — a slider and a Save button, which is what the earlier tool had and
   what the labels already in the file were graded on.
 

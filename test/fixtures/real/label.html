@@ -235,7 +235,10 @@ const SCALES = {
   },
   fine: { id: 'fine', label: '0-100', steps: null },
 };
-const SCALE_ORDER = ['bands4', 'bands5', 'fine'];
+/* Five bands first: it is the default, and the cycle should start where the
+   page starts. One press from the default drops to the coarser four, a second
+   opens the 0-100 slider. */
+const SCALE_ORDER = ['bands5', 'bands4', 'fine'];
 const TIER_COLOR = {
   'very-bad': 'var(--vbad)', bad: 'var(--bad)', marginal: 'var(--mid)',
   good: 'var(--good)', 'very-good': 'var(--vgood)',
@@ -249,8 +252,10 @@ let images = [], at = 0, category = 'document', issues = new Set(), open = false
    graded on. Both write an identical record, and the band edges are the same
    0.25 / 0.50 / 0.75, so a session can switch mid-way without the dataset
    becoming two incompatible halves. */
+/* A device that has already chosen keeps its choice; only a fresh one gets the
+   default. */
 let scaleId = SCALE_ORDER.includes(localStorage.getItem('dq-scale'))
-  ? localStorage.getItem('dq-scale') : 'bands4';
+  ? localStorage.getItem('dq-scale') : 'bands5';
 const isFine = () => scaleId === 'fine';
 let back = [];            // indices we came from, for Undo
 const prefetched = new Map();
