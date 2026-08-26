@@ -20,6 +20,7 @@
     --accent: #5b8cff;
     --vbad: #ff5c5c;
     --bad: #ffb020;
+    --mid: #d8c85a;
     --good: #8ad55f;
     --vgood: #35d07f;
     --tap: 60px;
@@ -71,7 +72,9 @@
   .row + .row { margin-top: 6px; }
 
   /* The four scores. One press each — this is the whole job. */
-  #tiers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  #tiers { display: grid; gap: 6px; }
+  #tiers.n4 { grid-template-columns: repeat(4, 1fr); }
+  #tiers.n5 { grid-template-columns: repeat(5, 1fr); }
   /* 0-100 mode: the same thumb zone, spent on precision instead of speed. */
   #scale input { width: 100%; height: 44px; accent-color: var(--accent); }
   #scale-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
@@ -87,10 +90,8 @@
           justify-content: center; gap: 1px; line-height: 1.1; }
   .tier small { font-size: 10px; font-weight: 600; opacity: .62; }
   .tier:active { transform: scale(.95); filter: brightness(1.15); }
-  .tier[data-t="very-bad"] { background: var(--vbad); }
-  .tier[data-t="bad"]      { background: var(--bad); }
-  .tier[data-t="good"]     { background: var(--good); }
-  .tier[data-t="very-good"]{ background: var(--vgood); }
+  /* Five buttons still clear the 44px floor on a 375px phone: 66px each. */
+  #tiers.n5 .tier { font-size: 13px; }
 
   .btn { min-height: 46px; flex: 1; background: #23232a; border: 1px solid var(--line); color: var(--text);
          border-radius: 10px; font-size: 14px; font-weight: 600; }
@@ -166,12 +167,7 @@
       <button class="tier" id="bigsave" data-t="save">Save<small>Enter</small></button>
     </div>
   </div>
-  <div id="tiers">
-    <button class="tier" data-t="very-bad"  data-s="12">Unusable<small>1</small></button>
-    <button class="tier" data-t="bad"       data-s="37">Bad<small>2</small></button>
-    <button class="tier" data-t="good"      data-s="62">Good<small>3</small></button>
-    <button class="tier" data-t="very-good" data-s="87">Great<small>4</small></button>
-  </div>
+  <div id="tiers"></div>
   <div class="row">
     <button class="btn" id="undo" disabled>Undo<kbd>U</kbd></button>
     <button class="btn wide" id="skip">Skip<kbd>S</kbd></button>
@@ -202,8 +198,48 @@
 const ISSUES = ['Blurry','Too dark','Too bright','Glare','Moire','Tilted','Shadows',
                 'Low res','Compressed','Faded text','Motion blur','Noisy','Partial/cropped'];
 const DIR_TO_CATEGORY = { documents:'document', receipts:'receipt', cards:'card', photos:'photo' };
-/* Band centres, matching TIER_LABELS in scripts/extract-features.mjs. */
-const TIER_SCORE = { 'very-bad':0.12, bad:0.37, good:0.62, 'very-good':0.87 };
+/*
+  The scales, as data.
+
+  Four bands match the tier names used everywhere else — the fixture folders,
+  TIER_LABELS in extract-features.mjs, the per-tier buckets in train-model.py —
+  and their centres are those tier defaults.
+
+  Five bands add the judgement the four cannot express: this one is borderline.
+  Its centre is 0.48, not 0.50, and that is deliberate. train-model.py decides
+  pass with `y_true >= threshold`, so a label sitting exactly on 0.5 is scored
+  as a definite pass, and every borderline call would quietly become a positive
+  in the metrics. Placing it just below keeps a borderline page on the fail
+  side, which is the safe direction for a gate whose entire job is to avoid
+  paying for a page that will not read.
+*/
+const SCALES = {
+  bands4: {
+    id: 'bands4', label: '1-4',
+    steps: [
+      { t: 'very-bad',  s: 0.12, name: 'Unusable' },
+      { t: 'bad',       s: 0.37, name: 'Bad' },
+      { t: 'good',      s: 0.62, name: 'Good' },
+      { t: 'very-good', s: 0.87, name: 'Great' },
+    ],
+  },
+  bands5: {
+    id: 'bands5', label: '1-5',
+    steps: [
+      { t: 'very-bad',  s: 0.10, name: 'Unusable' },
+      { t: 'bad',       s: 0.30, name: 'Bad' },
+      { t: 'marginal',  s: 0.48, name: 'Marginal' },
+      { t: 'good',      s: 0.70, name: 'Good' },
+      { t: 'very-good', s: 0.90, name: 'Great' },
+    ],
+  },
+  fine: { id: 'fine', label: '0-100', steps: null },
+};
+const SCALE_ORDER = ['bands4', 'bands5', 'fine'];
+const TIER_COLOR = {
+  'very-bad': 'var(--vbad)', bad: 'var(--bad)', marginal: 'var(--mid)',
+  good: 'var(--good)', 'very-good': 'var(--vgood)',
+};
 const PREFETCH = 3;
 
 const $ = (id) => document.getElementById(id);
@@ -213,7 +249,9 @@ let images = [], at = 0, category = 'document', issues = new Set(), open = false
    graded on. Both write an identical record, and the band edges are the same
    0.25 / 0.50 / 0.75, so a session can switch mid-way without the dataset
    becoming two incompatible halves. */
-let fine = localStorage.getItem('dq-scale') === 'fine';
+let scaleId = SCALE_ORDER.includes(localStorage.getItem('dq-scale'))
+  ? localStorage.getItem('dq-scale') : 'bands4';
+const isFine = () => scaleId === 'fine';
 let back = [];            // indices we came from, for Undo
 const prefetched = new Map();
 
@@ -322,7 +360,7 @@ function show(idx) {
     const s = img.label.score;
     prev.hidden = false;
     prev.textContent = img.label.label + (s == null ? '' : ' ' + s.toFixed(2));
-    prev.style.color = { 'very-bad':'#ff5c5c', bad:'#ffb020', good:'#8ad55f', 'very-good':'#35d07f' }[img.label.label] || '#8b8b96';
+      prev.style.color = TIER_COLOR[img.label.label] || '#8b8b96';
     const pos = Math.round((s ?? 0.5) * 100);
     $('slider').value = pos;
     $('big').value = pos;
@@ -348,7 +386,7 @@ function grade(tier, score) {
   if (!img) return;
   const body = {
     path: img.path, label: tier,
-    score: score ?? TIER_SCORE[tier] ?? 0.5,
+    score: score ?? 0.5,
     category, issues: [...issues], notes: $('notes').value.trim(),
   };
   img.label = { ...body, timestamp: new Date().toISOString() };
@@ -378,11 +416,25 @@ function tierOf(v) {
 }
 
 function paintMode() {
-  $('tiers').hidden = fine;
-  $('scale').hidden = !fine;
-  $('mode').textContent = fine ? '0-100' : '1-4';
-  $('mode').classList.toggle('fine', fine);
-  $('fine').style.display = fine ? 'none' : '';   // no second slider in scale mode
+  const scale = SCALES[scaleId];
+  const bands = scale.steps;
+  $('tiers').hidden = !bands;
+  $('scale').hidden = Boolean(bands);
+  $('mode').textContent = scale.label;
+  $('mode').classList.toggle('fine', !bands);
+  $('fine').style.display = bands ? '' : 'none';  // no second slider in scale mode
+
+  const row = $('tiers');
+  row.className = bands ? 'n' + bands.length : '';
+  row.innerHTML = '';
+  (bands ?? []).forEach((step, i) => {
+    const b = document.createElement('button');
+    b.className = 'tier';
+    b.style.background = TIER_COLOR[step.t] || '#888';
+    b.innerHTML = `${step.name}<small>${i + 1}</small>`;
+    b.onclick = () => grade(step.t, step.s);
+    row.appendChild(b);
+  });
   paintBig();
 }
 
@@ -428,9 +480,6 @@ function flash(text, bad) {
 }
 
 /* ── input ───────────────────────────────────────────────── */
-document.querySelectorAll('.tier').forEach((b) => {
-  b.onclick = () => grade(b.dataset.t, Number(b.dataset.s) / 100);
-});
 document.querySelectorAll('.chip').forEach((c) => {
   c.onclick = () => { category = c.dataset.c; paintCats(); };
 });
@@ -448,9 +497,10 @@ $('bigsave').onclick = () => {
   grade(tierOf(v), v);
 };
 $('mode').onclick = () => {
-  fine = !fine;
-  localStorage.setItem('dq-scale', fine ? 'fine' : 'bands');
+  scaleId = SCALE_ORDER[(SCALE_ORDER.indexOf(scaleId) + 1) % SCALE_ORDER.length];
+  localStorage.setItem('dq-scale', scaleId);
   paintMode();
+  flash(SCALES[scaleId].label);
 };
 $('save-fine').onclick = () => {
   const v = $('slider').valueAsNumber / 100;
@@ -477,9 +527,13 @@ addEventListener('keydown', (e) => {
     if (e.key === 'Enter') e.target.blur();
     return;
   }
-  const tiers = { '1':'very-bad', '2':'bad', '3':'good', '4':'very-good' };
-  if (tiers[e.key]) { e.preventDefault(); return grade(tiers[e.key]); }
-  if (e.key === 'Enter' && fine) {
+  const bands = SCALES[scaleId].steps;
+  const n = Number(e.key);
+  if (bands && n >= 1 && n <= bands.length) {
+    e.preventDefault();
+    return grade(bands[n - 1].t, bands[n - 1].s);
+  }
+  if (e.key === 'Enter' && isFine()) {
     e.preventDefault();
     const v = $('big').valueAsNumber / 100;
     return grade(tierOf(v), v);

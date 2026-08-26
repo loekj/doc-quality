@@ -72,13 +72,28 @@ destination, and the only copy that outlives the service.
 
 ## Scoring modes
 
-The page offers two ways to score the same thing, switched by the button in the
-top bar and remembered per device.
+The button in the top bar cycles three ways to score the same thing, remembered
+per device.
 
-- **1-4** — four buttons, one press each, saving the band centres 0.12, 0.37,
-  0.62 and 0.87. Fast enough to get through thousands of images.
+- **1-4** — four buttons saving 0.12, 0.37, 0.62, 0.87. These are the tier names
+  used everywhere else: the fixture folders, `TIER_LABELS` in
+  `extract-features.mjs`, the per-tier buckets in `train-model.py`.
+- **1-5** — adds *Marginal*, the judgement four bands cannot express. Centres are
+  0.10, 0.30, **0.48**, 0.70, 0.90.
 - **0-100** — a slider and a Save button, which is what the earlier tool had and
   what the labels already in the file were graded on.
+
+### Why Marginal is 0.48 and not 0.50
+
+`train-model.py` decides pass with `y_true >= threshold`, and the threshold is
+0.5. A label sitting exactly on 0.5 is therefore scored as a definite pass, so
+every borderline call would quietly become a positive in the metrics — the least
+useful place a label can sit. Placing it just below keeps a borderline page on
+the fail side, which is the safe direction for a gate whose whole job is to avoid
+paying for a page that will not read.
+
+`marginal` is stored as its own tier name and reports into the `bad` bucket by
+score. Nothing else needs to know about it: training reads the score.
 
 Both write an identical record and use the same band edges at 0.25, 0.50 and
 0.75, so switching mid-session does not split the dataset into incompatible
