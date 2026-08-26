@@ -68,3 +68,27 @@ Three things guard against that now:
 
 `.gitignore` already un-ignores `labels.json`. Committing it is the intended
 destination, and the only copy that outlives the service.
+
+
+## Scoring modes
+
+The page offers two ways to score the same thing, switched by the button in the
+top bar and remembered per device.
+
+- **1-4** — four buttons, one press each, saving the band centres 0.12, 0.37,
+  0.62 and 0.87. Fast enough to get through thousands of images.
+- **0-100** — a slider and a Save button, which is what the earlier tool had and
+  what the labels already in the file were graded on.
+
+Both write an identical record and use the same band edges at 0.25, 0.50 and
+0.75, so switching mid-session does not split the dataset into incompatible
+halves. Existing labels load into either mode: the badge shows the stored tier
+and the slider restores the exact stored score.
+
+The difference is resolution, not format. A band press records one of four
+values; the slider records any of a hundred. Whether that matters depends on
+whether a rater is genuinely consistent at 0.01 resolution — `feature-report.py`
+will show whether the finer labels separate anything the bands do not.
+
+A skip records no score at all. It means "not judging this one", which is not
+the same as zero, and `extract-features.mjs` drops entries without a score.
