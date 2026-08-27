@@ -14,7 +14,13 @@ WORKDIR /app
 # are dynamic, and the corpus holds 108 PDFs. @napi-rs/canvas gives Node the
 # browser surface preflight needs. heic-convert is the only thing here that can
 # read HEIC at all — sharp reports the header and then fails on the pixels.
-RUN npm init -y > /dev/null 2>&1 && npm install \
+#
+# `npm init -y` writes no "type", so Node parses dist/index.js as CommonJS,
+# fails, and reparses it as ESM on every boot — it works, but it warns and
+# costs time for nothing.
+RUN npm init -y > /dev/null 2>&1 \
+    && npm pkg set type=module \
+    && npm install \
       sharp@^0.33.0 \
       @napi-rs/canvas@~0.1.95 \
       heic-convert \
