@@ -1,11 +1,31 @@
+# The analyze endpoint reports what the deployed grader does, so the grader has
+# to be built from the source that was deployed. Shipping a dist/ from a laptop
+# would let the two drift, and a stale build answers confidently and wrongly.
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json tsup.config.ts ./
+COPY src ./src
+RUN npm ci && npm run build
+
 FROM node:22-slim
 WORKDIR /app
 
-# Install heic-convert for HEIC→JPEG conversion (pure JS, no native deps)
-RUN npm init -y > /dev/null 2>&1 && npm install heic-convert
+# sharp is a static import of dist/index.js. pdf-to-png-converter and pdfjs-dist
+# are dynamic, and the corpus holds 108 PDFs. @napi-rs/canvas gives Node the
+# browser surface preflight needs. heic-convert is the only thing here that can
+# read HEIC at all — sharp reports the header and then fails on the pixels.
+RUN npm init -y > /dev/null 2>&1 && npm install \
+      sharp@^0.33.0 \
+      @napi-rs/canvas@~0.1.95 \
+      heic-convert \
+      pdf-to-png-converter@^3.0.0 \
+      pdfjs-dist@^5.4.624
 
-# Copy server code, HTML pages, and image manifest (images served from S3)
+COPY --from=build /app/dist ./dist
+
+# Server code, HTML pages, and image manifest (images served from S3)
 COPY test/fixtures/real/label-server.mjs ./test/fixtures/real/label-server.mjs
+COPY test/fixtures/real/preflight-worker.mjs ./test/fixtures/real/preflight-worker.mjs
 COPY test/fixtures/real/label.html ./test/fixtures/real/label.html
 COPY test/fixtures/real/review.html ./test/fixtures/real/review.html
 COPY test/fixtures/real/manifest.json ./test/fixtures/real/manifest.json

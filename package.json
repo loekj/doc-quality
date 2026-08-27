@@ -74,6 +74,7 @@
   "devDependencies": {
     "@napi-rs/canvas": "~0.1.95",
     "@types/node": "^25.3.5",
+    "heic-convert": "^2.1.0",
     "pdf-to-png-converter": "^3.0.0",
     "pdfjs-dist": "^5.4.624",
     "railway": "^3.11.0",

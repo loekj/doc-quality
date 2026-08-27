@@ -1,2 +1,8 @@
 *
 !test/fixtures/real/
+# The build stage compiles dist/ from source, so the source has to reach it.
+!src/
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsup.config.ts
