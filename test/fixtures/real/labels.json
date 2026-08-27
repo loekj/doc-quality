@@ -65,11 +65,11 @@
   },
   "documents/unsorted/doc-009.pdf": {
     "label": "skip",
-    "score": 0.75,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-08T03:52:42.487Z"
+    "timestamp": "2026-08-27T00:06:16.355Z"
   },
   "documents/unsorted/doc-010.pdf": {
     "label": "bad",
@@ -3489,11 +3489,11 @@
   },
   "documents/unsorted/doc-00624.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T02:58:39.594Z"
+    "timestamp": "2026-08-27T00:06:16.944Z"
   },
   "cards/unsorted/card-01014.jpg": {
     "label": "very-bad",
@@ -3689,11 +3689,11 @@
   },
   "documents/unsorted/doc-00885.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:00:46.359Z"
+    "timestamp": "2026-08-27T00:06:17.205Z"
   },
   "documents/unsorted/doc-00426.jpg": {
     "label": "bad",
@@ -3825,11 +3825,11 @@
   },
   "documents/unsorted/doc-00357.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:02:11.013Z"
+    "timestamp": "2026-08-27T00:06:17.460Z"
   },
   "documents/unsorted/doc-01152.pdf": {
     "label": "very-good",
@@ -3921,11 +3921,11 @@
   },
   "documents/unsorted/doc-01099.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:03:37.868Z"
+    "timestamp": "2026-08-27T00:06:17.720Z"
   },
   "receipts/unsorted/rec-01751.jpg": {
     "label": "very-good",
@@ -4009,11 +4009,11 @@
   },
   "documents/unsorted/doc-01385.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:04:30.238Z"
+    "timestamp": "2026-08-27T00:06:17.977Z"
   },
   "documents/unsorted/doc-00018.jpg": {
     "label": "bad",
@@ -4129,11 +4129,11 @@
   },
   "documents/unsorted/doc-00716.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:05:55.303Z"
+    "timestamp": "2026-08-27T00:06:18.236Z"
   },
   "cards/very-bad/card-01301.jpg": {
     "label": "very-bad",
@@ -4161,11 +4161,11 @@
   },
   "documents/bad/doc-01457.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:06:27.526Z"
+    "timestamp": "2026-08-27T00:06:18.503Z"
   },
   "receipts/very-bad/rec-01361.jpg": {
     "label": "good",
@@ -4193,11 +4193,11 @@
   },
   "documents/unsorted/doc-00293.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:06:48.865Z"
+    "timestamp": "2026-08-27T00:06:18.765Z"
   },
   "receipts/unsorted/rec-00455.jpg": {
     "label": "good",
@@ -4289,11 +4289,11 @@
   },
   "documents/bad/doc-00147.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:08:08.498Z"
+    "timestamp": "2026-08-27T00:06:19.020Z"
   },
   "receipts/unsorted/rec-00373.jpg": {
     "label": "very-good",
@@ -4305,11 +4305,11 @@
   },
   "documents/unsorted/doc-00143.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:08:17.010Z"
+    "timestamp": "2026-08-27T00:06:19.300Z"
   },
   "documents/unsorted/doc-00406.jpg": {
     "label": "very-good",
@@ -4377,11 +4377,11 @@
   },
   "documents/unsorted/doc-01041.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:08:53.982Z"
+    "timestamp": "2026-08-27T00:06:19.542Z"
   },
   "documents/unsorted/doc-00161.heic": {
     "label": "bad",
@@ -4433,19 +4433,19 @@
   },
   "documents/unsorted/doc-01446.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:09:32.515Z"
+    "timestamp": "2026-08-27T00:06:19.786Z"
   },
   "documents/unsorted/doc-00228.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:09:33.927Z"
+    "timestamp": "2026-08-27T00:06:20.067Z"
   },
   "cards/unsorted/card-01164.jpg": {
     "label": "good",
@@ -4457,11 +4457,11 @@
   },
   "documents/bad/doc-00187.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:09:41.836Z"
+    "timestamp": "2026-08-27T00:06:20.335Z"
   },
   "cards/unsorted/card-00977.jpg": {
     "label": "bad",
@@ -4489,11 +4489,11 @@
   },
   "documents/unsorted/doc-00237.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:10:20.269Z"
+    "timestamp": "2026-08-27T00:06:20.593Z"
   },
   "cards/unsorted/card-01206.jpg": {
     "label": "bad",
@@ -4529,11 +4529,11 @@
   },
   "documents/bad/doc-00255.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:10:32.599Z"
+    "timestamp": "2026-08-27T00:06:20.867Z"
   },
   "receipts/unsorted/rec-00224.jpg": {
     "label": "very-bad",
@@ -4553,11 +4553,11 @@
   },
   "documents/unsorted/doc-01302.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:10:41.123Z"
+    "timestamp": "2026-08-27T00:06:21.122Z"
   },
   "receipts/bad/rec-01238.jpg": {
     "label": "good",
@@ -4625,11 +4625,11 @@
   },
   "documents/unsorted/doc-00393.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:11:21.025Z"
+    "timestamp": "2026-08-27T00:06:21.394Z"
   },
   "documents/unsorted/doc-00483.jpg": {
     "label": "very-good",
@@ -4649,11 +4649,11 @@
   },
   "documents/unsorted/doc-01289.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:11:37.024Z"
+    "timestamp": "2026-08-27T00:06:21.650Z"
   },
   "receipts/unsorted/rec-01573.jpg": {
     "label": "very-good",
@@ -4705,11 +4705,11 @@
   },
   "documents/unsorted/doc-00954.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:12:14.744Z"
+    "timestamp": "2026-08-27T00:06:21.907Z"
   },
   "cards/unsorted/card-00859.jpg": {
     "label": "very-bad",
@@ -4777,11 +4777,11 @@
   },
   "documents/unsorted/doc-01098.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:13:09.287Z"
+    "timestamp": "2026-08-27T00:06:22.173Z"
   },
   "cards/unsorted/card-00126.jpg": {
     "label": "very-bad",
@@ -4825,11 +4825,11 @@
   },
   "receipts/very-bad/rec-00194.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "receipt",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:13:28.811Z"
+    "timestamp": "2026-08-27T00:06:22.431Z"
   },
   "receipts/bad/rec-00818.jpg": {
     "label": "bad",
@@ -4953,11 +4953,11 @@
   },
   "documents/unsorted/doc-01420.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:14:45.597Z"
+    "timestamp": "2026-08-27T00:06:22.682Z"
   },
   "receipts/bad/rec-00227.jpg": {
     "label": "good",
@@ -4993,11 +4993,11 @@
   },
   "photos/unsorted/photo-00031.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "receipt",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:15:19.073Z"
+    "timestamp": "2026-08-27T00:06:22.953Z"
   },
   "cards/unsorted/card-00721.jpg": {
     "label": "very-good",
@@ -5169,11 +5169,11 @@
   },
   "documents/unsorted/doc-00379.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:16:55.059Z"
+    "timestamp": "2026-08-27T00:06:23.201Z"
   },
   "cards/unsorted/card-01110.jpeg": {
     "label": "very-good",
@@ -5201,19 +5201,19 @@
   },
   "documents/unsorted/doc-00732.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:17:09.636Z"
+    "timestamp": "2026-08-27T00:06:23.457Z"
   },
   "documents/unsorted/doc-01370.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:17:11.336Z"
+    "timestamp": "2026-08-27T00:06:23.719Z"
   },
   "receipts/unsorted/rec-01530.jpg": {
     "label": "good",
@@ -5393,19 +5393,19 @@
   },
   "documents/very-bad/doc-00695.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:18:42.215Z"
+    "timestamp": "2026-08-27T00:06:23.985Z"
   },
   "documents/bad/doc-00389.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:18:43.440Z"
+    "timestamp": "2026-08-27T00:06:24.237Z"
   },
   "cards/unsorted/card-00620.jpg": {
     "label": "good",
@@ -5425,19 +5425,19 @@
   },
   "documents/unsorted/doc-00250.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:18:57.088Z"
+    "timestamp": "2026-08-27T00:06:24.513Z"
   },
   "documents/unsorted/doc-01018.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:18:59.455Z"
+    "timestamp": "2026-08-27T00:06:24.826Z"
   },
   "cards/unsorted/card-00359.jpg": {
     "label": "very-bad",
@@ -5521,11 +5521,11 @@
   },
   "documents/unsorted/doc-00855.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:19:50.888Z"
+    "timestamp": "2026-08-27T00:06:25.077Z"
   },
   "receipts/unsorted/rec-00611.jpg": {
     "label": "very-good",
@@ -5569,11 +5569,11 @@
   },
   "documents/unsorted/doc-00824.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:20:24.761Z"
+    "timestamp": "2026-08-27T00:06:25.540Z"
   },
   "cards/unsorted/card-00914.jpg": {
     "label": "bad",
@@ -5609,11 +5609,11 @@
   },
   "documents/unsorted/doc-01286.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:20:47.850Z"
+    "timestamp": "2026-08-27T00:06:26.011Z"
   },
   "cards/unsorted/card-00200.jpg": {
     "label": "bad",
@@ -5673,11 +5673,11 @@
   },
   "documents/bad/doc-00196.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T03:21:33.251Z"
+    "timestamp": "2026-08-27T00:06:26.518Z"
   },
   "cards/unsorted/card-00794.jpg": {
     "label": "bad",
@@ -5721,11 +5721,11 @@
   },
   "documents/unsorted/doc-01454.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:13:28.736Z"
+    "timestamp": "2026-08-27T00:06:27.037Z"
   },
   "receipts/unsorted/rec-01642.jpg": {
     "label": "very-good",
@@ -5777,11 +5777,11 @@
   },
   "documents/unsorted/doc-01316.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:14:03.762Z"
+    "timestamp": "2026-08-27T00:06:27.312Z"
   },
   "cards/unsorted/card-00240.jpg": {
     "label": "bad",
@@ -5825,19 +5825,19 @@
   },
   "documents/bad/doc-00878.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:14:31.915Z"
+    "timestamp": "2026-08-27T00:06:27.843Z"
   },
   "documents/unsorted/doc-00518.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:14:33.837Z"
+    "timestamp": "2026-08-27T00:06:28.294Z"
   },
   "cards/unsorted/card-00331.jpg": {
     "label": "bad",
@@ -5873,11 +5873,11 @@
   },
   "documents/unsorted/doc-01436.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:14:58.698Z"
+    "timestamp": "2026-08-27T00:06:28.605Z"
   },
   "documents/bad/doc-00833.jpg": {
     "label": "bad",
@@ -5889,11 +5889,11 @@
   },
   "documents/unsorted/doc-00642.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-09T22:15:11.218Z"
+    "timestamp": "2026-08-27T00:06:29.016Z"
   },
   "documents/bad/doc-00057.jpg": {
     "label": "bad",
@@ -7529,19 +7529,19 @@
   },
   "documents/unsorted/doc-00500.heic": {
     "label": "skip",
-    "score": 0.36,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-16T00:52:06.018Z"
+    "timestamp": "2026-08-27T00:06:29.287Z"
   },
   "receipts/unsorted/rec-01385.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "receipt",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-16T00:51:52.588Z"
+    "timestamp": "2026-08-27T00:06:29.547Z"
   },
   "documents/bad/doc-00673.jpg": {
     "label": "bad",
@@ -10257,11 +10257,11 @@
   },
   "documents/unsorted/doc-00153.jpg": {
     "label": "skip",
-    "score": 0.5,
+    "score": null,
     "category": "document",
     "issues": [],
     "notes": "",
-    "timestamp": "2026-03-23T19:56:46.983Z"
+    "timestamp": "2026-08-27T00:06:29.809Z"
   },
   "cards/very-bad/card-00617.jpg": {
     "label": "bad",
