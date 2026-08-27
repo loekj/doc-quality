@@ -144,11 +144,14 @@ vite.config.ts.timestamp-*
 # Downloaded dataset images
 images/
 
-# Test fixture images (large binaries) — track labels and mappings only
-test/fixtures/real/documents/
-test/fixtures/real/receipts/
-test/fixtures/real/cards/
-test/fixtures/real/photos/
+# Test fixture images: tracked, but through LFS — see .gitattributes. They used
+# to be excluded here because 3.7 GB of blobs in the object database is a
+# permanent tax on every clone. LFS moves them behind a pointer, so the working
+# tree still has them and a fresh clone can choose not to.
+#
+# .railwayignore still excludes these four folders, and must keep doing so:
+# `railway up` uploads the working tree, not the git index, so dropping them
+# there would push 3.7 GB at the label server on every deploy.
 !test/fixtures/real/labels.json
 !test/fixtures/real/filename-mapping.json
 

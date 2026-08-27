@@ -1,0 +1,10 @@
+# The labeling corpus: 5065 images, 3.7 GB. Kept out of the object database
+# proper because git stores every blob whole and these never change - one
+# re-push of a modified image would cost its full size again.
+#
+# Scoped to the four corpus directories rather than to *.jpg repo-wide, so a
+# small fixture added elsewhere later is still an ordinary blob.
+test/fixtures/real/cards/** filter=lfs diff=lfs merge=lfs -text
+test/fixtures/real/receipts/** filter=lfs diff=lfs merge=lfs -text
+test/fixtures/real/documents/** filter=lfs diff=lfs merge=lfs -text
+test/fixtures/real/photos/** filter=lfs diff=lfs merge=lfs -text
