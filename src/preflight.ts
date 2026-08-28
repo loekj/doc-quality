@@ -124,8 +124,29 @@ export async function preflight(
     issues.push(makeIssue('file-too-large', `File size ${(fileSize / 1_000_000).toFixed(1)} MB exceeds maximum ${(t.fileSizeMax / 1_000_000).toFixed(0)} MB`));
   }
 
-  // Decode to ImageBitmap for dimensions
-  const bmp = await decodeImage(input);
+  // Decode to ImageBitmap for dimensions.
+  //
+  // Which formats decode is the browser's decision, not ours, and browsers
+  // disagree: Safari reads HEIC, Chrome and Firefox generally do not. Letting
+  // the failure escape made an iPhone photo throw out of preflight instead of
+  // failing it, so a caller who did not wrap this in a try/catch had their
+  // upload break on one of the commonest files there is. A file we cannot read
+  // is a reason to reject, which is exactly what preflight is for.
+  let bmp: ImageBitmap;
+  try {
+    bmp = await decodeImage(input);
+  } catch (err) {
+    issues.push(makeIssue(
+      'unreadable-file',
+      `Could not decode this file: ${err instanceof Error ? err.message : String(err)}`,
+    ));
+    return {
+      pass: false,
+      issues,
+      metadata: { width: 0, height: 0, fileSize },
+      timing: { totalMs: Math.round(performance.now() - t0) },
+    };
+  }
   const ownsBitmap = !(input instanceof ImageBitmap);
 
   try {

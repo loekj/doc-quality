@@ -155,5 +155,14 @@ images/
 !test/fixtures/real/labels.json
 !test/fixtures/real/filename-mapping.json
 
+# Python training environment. scripts/train-model.py, feature-report.py and
+# eval-model.py need xgboost/pandas/scikit-learn, which are not npm deps and do
+# not belong in the repo. Create it with:
+#   python3 -m venv .venv && .venv/bin/pip install -r scripts/requirements.txt
+# xgboost also needs the OpenMP runtime: `brew install libomp` on macOS.
+.venv/
+__pycache__/
+*.pyc
+
 # Claude Code
 .claude/

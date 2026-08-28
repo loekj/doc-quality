@@ -1,0 +1,60 @@
+{
+  "seed": 42,
+  "test_size": 0.15,
+  "n_train_images": 1037,
+  "n_test_images": 183,
+  "models": {
+    "fast": {
+      "r2": 0.5931,
+      "mae": 0.1238,
+      "rmse": 0.1593,
+      "accuracy": 0.8361,
+      "confusion": {
+        "tp": 55,
+        "tn": 98,
+        "fp": 14,
+        "fn": 16
+      },
+      "n_test": 183
+    },
+    "thorough": {
+      "r2": 0.6262,
+      "mae": 0.1173,
+      "rmse": 0.1527,
+      "accuracy": 0.8525,
+      "confusion": {
+        "tp": 58,
+        "tn": 98,
+        "fp": 14,
+        "fn": 13
+      },
+      "n_test": 183
+    },
+    "deep": {
+      "r2": 0.6113,
+      "mae": 0.1201,
+      "rmse": 0.1557,
+      "accuracy": 0.8306,
+      "confusion": {
+        "tp": 55,
+        "tn": 97,
+        "fp": 15,
+        "fn": 16
+      },
+      "n_test": 183
+    },
+    "preflight": {
+      "r2": 0.5629,
+      "mae": 0.1277,
+      "rmse": 0.1651,
+      "accuracy": 0.8087,
+      "confusion": {
+        "tp": 50,
+        "tn": 98,
+        "fp": 14,
+        "fn": 21
+      },
+      "n_test": 183
+    }
+  }
+}

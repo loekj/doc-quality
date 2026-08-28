@@ -1,7 +1,7 @@
 {
   "name": "doc-quality",
   "version": "0.1.0",
-  "description": "Fast, configurable document & image quality analysis — detect blur, darkness, low resolution, and more before OCR",
+  "description": "Fast, configurable document & image quality analysis \u2014 detect blur, darkness, low resolution, and more before OCR",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -55,7 +55,8 @@
     "pdf-to-png-converter": ">=3.0.0",
     "pdfjs-dist": ">=4.0.0",
     "sharp": ">=0.32.0",
-    "tesseract.js": ">=5.0.0"
+    "tesseract.js": ">=5.0.0",
+    "heic-convert": ">=2.0.0"
   },
   "peerDependenciesMeta": {
     "sharp": {
@@ -68,6 +69,9 @@
       "optional": true
     },
     "pdfjs-dist": {
+      "optional": true
+    },
+    "heic-convert": {
       "optional": true
     }
   },

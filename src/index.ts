@@ -7,6 +7,7 @@ import { detectDocumentBounds } from './boundary.js';
 import type { ConcretePreset } from './defaults.js';
 import type { QualityOptions, QualityResult, Issue, PageResult, AnalyzerName } from './types.js';
 import { isPdf, parsePages, renderPdfPages } from './pdf.js';
+import { isHeif, decodeHeif } from './heif.js';
 import type { RenderedPage } from './pdf.js';
 import { ISSUE_GUIDANCE } from './guidance.js';
 import { analyzePdfContent } from './pdf-content.js';
@@ -52,6 +53,7 @@ export type { FFTAnalyzerFn } from './fft.js';
 export { computeSpectrum2D } from './fft-core.js';
 export type { MagnitudeSpectrum2D } from './fft-core.js';
 export { isPdf, parsePages } from './pdf.js';
+export { isHeif, decodeHeif, setHeifDecodeConcurrency, getHeifDecodeConcurrency } from './heif.js';
 export { detectDocumentBounds } from './boundary.js';
 export { estimateSkewAngle, gradedPenalty } from './analyzers.js';
 export { analyzeTextLines, TEXT_LINE_DEFAULTS } from './text-lines.js';
@@ -106,7 +108,17 @@ export async function checkQuality(
   input: string | URL | Buffer | Uint8Array,
   options: QualityOptions = {},
 ): Promise<QualityResult> {
-  const buffer = await resolveInput(input);
+  const original = await resolveInput(input);
+
+  // HEIC/HEIF has to become something sharp can read before anything else can
+  // measure it — see src/heif.ts for why sharp cannot do it itself. Only the
+  // decision is made here; the work happens inside the timed region below,
+  // because decoding a large HEIC takes seconds and a caller who asked for a
+  // 100 ms budget got 5 s of conversion and then an `analysis-timeout` for its
+  // trouble. A deadline that only covers the cheap half is not a deadline.
+  const isHeifInput = isHeif(original);
+  const isPdfInput = !isHeifInput && isPdf(original);
+
   const {
     mode = 'fast',
     preset = 'auto',
@@ -123,19 +135,31 @@ export async function checkQuality(
   // Boundary detection only runs in thorough mode
   const useBoundary = mode === 'thorough' ? boundaryDetector : undefined;
 
-  const run = isPdf(buffer)
-    ? () => checkPdf(buffer, mode, preset, overrides, useBoundary, pagesInput, penalties, maxConcurrency, onPage, pdfStrategy, options)
-    : () => checkImage(buffer, mode, preset, overrides, useBoundary, penalties, options);
+  // Lets the timeout actually stop a HEIC decode instead of merely walking away
+  // from it — see decodeHeif. Without this the abandoned work keeps a core busy.
+  const abort = new AbortController();
+
+  const run = async (): Promise<QualityResult> => {
+    const buffer = isHeifInput ? await decodeHeif(original, abort.signal) : original;
+    const result = isPdfInput
+      ? await checkPdf(buffer, mode, preset, overrides, useBoundary, pagesInput, penalties, maxConcurrency, onPage, pdfStrategy, options)
+      : await checkImage(buffer, mode, preset, overrides, useBoundary, penalties, options);
+    // Report the size of the file the caller handed us, not of the PNG we made
+    // from it — the same restore the PDF path does after rendering.
+    if (isHeifInput) result.metadata.fileSize = original.length;
+    return result;
+  };
 
   // A PDF's timeout applies per page, not to the whole document. A 20-page
   // scan legitimately takes ~18s, and a flat 10s guard would fail the entire
   // file — which, now that the timeout fails closed, means reporting perfectly
   // good pages as unreadable. Per page also contains the damage: one page that
   // hangs no longer sinks the other nineteen.
-  if (timeout > 0 && !isPdf(buffer)) {
+  if (timeout > 0 && !isPdfInput) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<QualityResult>((resolve) => {
       timer = setTimeout(() => {
+        abort.abort();
         // Fail closed. A check that did not finish tells us nothing about the
         // image, so it must not report a perfect score — it previously returned
         // pass: true / score: 1, which made a slow image look flawless.
@@ -155,7 +179,7 @@ export async function checkQuality(
               penalty: 0,
             },
           ],
-          metadata: { width: 0, height: 0, megapixels: 0, fileSize: buffer.length },
+          metadata: { width: 0, height: 0, megapixels: 0, fileSize: original.length },
           timing: { totalMs: timeout, analyzers: {} },
         });
       }, timeout);

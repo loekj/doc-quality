@@ -916,9 +916,79 @@ The scoring model is trained on the [doc-quality-dataset](https://zenodo.org/rec
 
 ## Supported Formats
 
-**Images:** JPEG, PNG, WebP, TIFF, GIF, AVIF, HEIF, SVG (via sharp)
+**Images:** JPEG, PNG, WebP, TIFF, GIF, SVG (via sharp)
+
+**HEIC/HEIF:** Via `heic-convert` (optional peer dependency)
 
 **PDF:** Via `pdf-to-png-converter` (optional peer dependency)
+
+**AVIF is not supported**, despite sharp listing it — this build reports no AVIF
+input support at all.
+
+### HEIC/HEIF
+
+`checkQuality` handles HEIC itself. Install the optional peer dependency and
+pass the bytes:
+
+```bash
+npm install heic-convert
+```
+
+```ts
+const result = await checkQuality(heicBuffer, { mode: 'deep' });
+```
+
+Without it, HEIC input throws an error naming the missing package.
+
+This exists because sharp cannot decode HEIC. It advertises `heif` as an input
+format and will read a header — dimensions, `format: 'heif'` — then fail on the
+pixels with `No decoding plugin installed for this compression format`. Its
+prebuilt binaries ship without an HEVC decoder on every platform, for licensing
+reasons, so it is not an install problem you can fix.
+
+Two things follow from the conversion, which is to PNG:
+
+- **`metadata.fileSize` is the original file's size**, not the PNG's. The PNG is
+  roughly ten times larger — a 2.6 MB HEIC becomes ~25 MB — and everything
+  downstream is slower for it.
+- **Compression signals do not apply.** `heavy-compression` and `jpeg-artifacts`
+  describe a lossless PNG, so they say nothing about how the HEIC was encoded.
+  Sharpness, brightness, geometry and legibility are measured on the real pixels
+  and are unaffected. JPEG was rejected as the conversion target for exactly this
+  reason: a lossy hop stamps in damage `deep` mode would then report as a defect
+  of the original.
+- **The decode runs in a worker thread**, because `heic-convert` is pure
+  JavaScript and would otherwise hold the event loop for seconds — long enough
+  that `timeout` could not fire and every other request on the process stalled
+  behind it. A `timeout` is honoured to within ~10 ms and genuinely terminates
+  the decode rather than abandoning it. Measured on a 2.6 MB iPhone photo: the
+  loop stays ~91% responsive during a decode, and worker startup costs ~17 ms
+  against a decode of 1.5 s or more.
+
+  If `worker_threads` is unavailable, the decode falls back to this thread and
+  those guarantees weaken to what a blocking decode allows.
+- **At most two decodes run at once**, because each holds roughly 195 MB while
+  it runs. Measured peak RSS at eight concurrent decodes: 2.5 GB unbounded
+  against 0.5 GB bounded. Raise it if your container has the headroom —
+  throughput scales nearly linearly with concurrency up to the core count:
+
+  ```ts
+  import { setHeifDecodeConcurrency } from 'doc-quality';
+  setHeifDecodeConcurrency(6);   // ~1.2 GB peak, ~3.6 images/sec on 14 cores
+  ```
+
+**In the browser, `preflight` does not handle HEIC.** It uses the browser's own
+decoders, and they disagree: Safari reads HEIC, Chrome and Firefox generally do
+not, so the same file preflights differently per browser. A file the browser
+cannot decode returns `pass: false` with the `unreadable-file` code rather than
+throwing. Branch explicitly rather than relying on that, so behaviour is the same
+everywhere:
+
+```ts
+const result = isHeic(file)
+  ? await uploadForServerCheck(file)   // checkQuality handles it server-side
+  : await preflight(file);
+```
 
 ## License
 
