@@ -64,6 +64,84 @@ export function analyzeResolutionMax(ctx: AnalysisContext, t: Thresholds): Issue
   };
 }
 
+// ── Distance from the document ───────────────────────────────────
+
+/**
+ * Catch a document photographed from too far away.
+ *
+ * This is the failure every frame-wide check is blind to. Focus, exposure,
+ * contrast and megapixels all describe the picture, and a picture of a page
+ * across the room is an excellent picture — sharp, evenly lit, 12 MP. What is
+ * wrong is the scale of the writing inside it, and no measurement of the frame
+ * can see that.
+ *
+ * Measured on one A4 page composited into a fixed 3000x4000 frame at
+ * decreasing sizes, the page's lowercase body ran 25px at 85% of the frame,
+ * 18px at 40%, 11px at 15% and 9px at 8% — crossing the 8px OCR floor at
+ * roughly 0.8 MP of page, whatever the frame around it measured.
+ *
+ * Silent unless boundary detection found the page. A frame with no located
+ * document could be a tight scan or a distant photograph, and guessing between
+ * them from the frame alone is what produced the wrong answer in the first
+ * place.
+ *
+ * It scores, and it has to, because cropping is flattering. Once boundary
+ * detection can find a page this small, the pipeline crops to it and grades
+ * what is left — and what is left no longer contains the desk that was failing
+ * the capture. A German ID card lying at 22% of its frame, graded 0.15 by a
+ * human, went from 0.01 to a clean 1.00 the moment the page became findable.
+ * Detection and this penalty are one change; shipping either alone makes the
+ * library worse.
+ *
+ * Framing was checked against Tesseract over a 440-image stratified sample of
+ * the labelling corpus: below a fifth of the frame every file was unreadable,
+ * between a fifth and a third eight of nine were, and past a third the number
+ * settles at the corpus baseline and stops meaning anything. Over the same
+ * sample the region's own megapixel count ordered nothing — 0.3–0.5 MP was 50%
+ * unreadable and 3 MP and above was 58% — which is why it is a reprieve here
+ * and not a gate.
+ *
+ * Together with the hole-filled solidity that made these pages findable, this
+ * cut cards the library wrongly passed from 12 of 52 graded to 8, and moved one
+ * image toward the human verdict with none moved away.
+ *
+ * Run `scripts/calibrate-ocr.mjs` to re-measure any of it.
+ */
+export function analyzeDocumentDistance(ctx: AnalysisContext, t: Thresholds): Issue | null {
+  const region = ctx.documentRegion;
+  if (!region) return null;
+  // Framing leads, because framing is what the evidence orders. Measured
+  // against the frame the file encodes: `ctx.metadata` is the crop once one has
+  // been taken, and a region compared to its own crop is always 100%.
+  const framePixels = ctx.encodedPixels ?? ctx.metadata.width * ctx.metadata.height;
+  const fill = (region.width * region.height) / (framePixels || 1);
+  if (fill >= t.documentFrameFillMax) return null;
+  // The sensor's reprieve, and only that. A page at a fifth of a 48 MP frame is
+  // still 7 MP of page and reads perfectly, so a large enough region excuses
+  // the framing. It is not a second opinion on quality — over the same sample
+  // the region's megapixel count did not order the outcome at all — which is
+  // why it sits here, after the decision, rather than gating it.
+  const mp = (region.width * region.height) / 1_000_000;
+  if (mp >= t.documentRegionMpMin) return null;
+  return {
+    analyzer: 'documentDistance',
+    code: 'document-too-far',
+    guidance: ISSUE_GUIDANCE['document-too-far'],
+    message:
+      `Document too far away (fills ${(fill * 100).toFixed(0)}% of the frame, ` +
+      `minimum ${(t.documentFrameFillMax * 100).toFixed(0)}%; ` +
+      `${region.width}x${region.height} = ${mp.toFixed(2)} MP of page)`,
+    value: fill,
+    threshold: t.documentFrameFillMax,
+    // Graded on framing, the quantity that decided this. Grading on megapixels
+    // instead pinned every distance to the same severity, because the megapixel
+    // floor is a reprieve set high enough to excuse a large sensor: a page at a
+    // fifth of the frame and a page at a tenth both cleared it by miles and
+    // came back with an identical penalty.
+    penalty: gradedPenalty(0.5, fill > 0 ? t.documentFrameFillMax / fill : SEVERITY_CAP),
+  };
+}
+
 // ── Brightness ───────────────────────────────────────────────────
 
 export function analyzeBrightness(ctx: AnalysisContext, t: Thresholds): Issue | null {
@@ -1362,21 +1440,61 @@ export function analyzeTextLegibility(ctx: AnalysisContext, t: Thresholds): Issu
   const source = ctx.fullResGrey ?? ctx.greyRaw;
   if (!source) return issues;
 
-  const metrics = analyzeTextLines(
-    source.data,
-    source.width,
-    source.height,
-    ctx.skewAngle ?? 0,
-    {
-      xHeightMin: t.textXHeightMin,
-      strokeWidthMin: t.textStrokeWidthMin,
-      contrastMin: t.textLineContrastMin,
-      strokeSharpnessMin: t.textStrokeSharpnessMin,
-    },
-  );
+  const floors = {
+    xHeightMin: t.textXHeightMin,
+    strokeWidthMin: t.textStrokeWidthMin,
+    contrastMin: t.textLineContrastMin,
+    strokeSharpnessMin: t.textStrokeSharpnessMin,
+  };
+  const skew = ctx.skewAngle ?? 0;
+
+  // The crop first: it is the page, and where it works it is the cleaner
+  // surface. Where it does not, the frame it was cut from usually does — the
+  // threshold that failed to separate print from paper inside a cropped ID card
+  // separates the card from the desk perfectly well one level out. The two
+  // never both work, so this is a fallback and not a choice between answers.
+  let metrics = analyzeTextLines(source.data, source.width, source.height, skew, floors);
+  let measuredOn: 'page' | 'frame' = 'page';
+  if ((!metrics || !metrics.reliable) && ctx.uncroppedGrey) {
+    const frame = ctx.uncroppedGrey;
+    const fromFrame = analyzeTextLines(frame.data, frame.width, frame.height, skew, floors);
+    if (fromFrame?.reliable) {
+      metrics = fromFrame;
+      measuredOn = 'frame';
+    }
+  }
   if (!metrics) return issues;
 
   ctx.textLineMetrics = metrics;
+  const surface = measuredOn === 'frame' ? ', measured on the uncropped frame' : '';
+
+  // Otsu split the frame, not the page. Whatever the medians say, they describe
+  // a mis-segmentation, and on the worst inputs they say the text is excellent:
+  // a page at 20% of a 3000x4000 frame came back as one 800px-tall "line" with
+  // nothing illegible. Reporting that as legible is the false pass this guard
+  // exists to stop, so say the text could not be read instead of guessing.
+  //
+  // Advisory, not an error. "Could not measure" is not evidence of a bad page —
+  // a sparse form or a card legitimately has too few lines — and scoring it as
+  // a fault would reject good documents for being sparse. It reaches the caller
+  // and the feature vector, where a trained model can weigh it properly.
+  if (!metrics.reliable) {
+    issues.push({
+      analyzer: 'textLines',
+      code: 'text-unmeasurable',
+      guidance: ISSUE_GUIDANCE['text-unmeasurable'],
+      message:
+        `Text could not be measured (${metrics.lineCount} line(s) found, ` +
+        `median x-height ${metrics.medianXHeight.toFixed(1)}px against a ` +
+        `${source.height}px page — ink did not separate from paper` +
+        `${ctx.uncroppedGrey ? ', on the page or on the frame around it' : ''})`,
+      value: metrics.lineCount,
+      threshold: 3,
+      penalty: 1,
+      severity: 'advisory',
+    });
+    return issues;
+  }
 
   if (metrics.medianXHeight < t.textXHeightMin) {
     issues.push({
@@ -1385,7 +1503,7 @@ export function analyzeTextLegibility(ctx: AnalysisContext, t: Thresholds): Issu
       guidance: ISSUE_GUIDANCE['text-too-small'],
       message:
         `Text too small to read (median x-height ${metrics.medianXHeight.toFixed(1)}px, ` +
-        `minimum ${t.textXHeightMin}px, across ${metrics.lineCount} lines)`,
+        `minimum ${t.textXHeightMin}px, across ${metrics.lineCount} lines${surface})`,
       value: metrics.medianXHeight,
       threshold: t.textXHeightMin,
       penalty: gradedPenalty(
@@ -1404,7 +1522,7 @@ export function analyzeTextLegibility(ctx: AnalysisContext, t: Thresholds): Issu
       message:
         `${illegibleLines} of ${metrics.lineCount} text lines are not legible ` +
         `(${(metrics.illegibleFraction * 100).toFixed(0)}%, maximum ` +
-        `${(t.textIllegibleFractionMax * 100).toFixed(0)}%)`,
+        `${(t.textIllegibleFractionMax * 100).toFixed(0)}%${surface})`,
       value: metrics.illegibleFraction,
       threshold: t.textIllegibleFractionMax,
       penalty: gradedPenalty(

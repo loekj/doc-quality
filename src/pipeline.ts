@@ -18,6 +18,7 @@ import { extractFeatures } from './features.js';
 import {
   analyzeResolution,
   analyzeResolutionMax,
+  analyzeDocumentDistance,
   analyzeBrightness,
   analyzeSharpness,
   analyzeEdgeDensity,
@@ -187,6 +188,26 @@ export async function runPipeline(
     originalBuffer: buffer,
     analysisBuffer,
     metadata: { width, height, format: meta.format },
+    // Computed above and, until now, never handed over: `analyzeCompression`
+    // reads `ctx.encodedPixels ?? ctx.metadata`, and with the field absent it
+    // always took the fallback. On a cropped photograph that divides the whole
+    // file's bytes by the page's pixels alone, inflating bits-per-pixel and
+    // making a starved JPEG look well fed. It also gives the distance check the
+    // only frame size worth comparing a region against — `metadata` is the crop
+    // once one has happened, so a region measured against it is always 100%.
+    encodedPixels,
+    // Prefer the crop, which is the region the analysers actually saw. Fall
+    // back to uncropped bounds: those are inflated wherever an edge went
+    // undetected, which can only make the page look larger and the distance
+    // check quieter, never louder.
+    ...(croppedRegion || builtinBounds
+      ? {
+          documentRegion: {
+            width: (croppedRegion ?? builtinBounds)!.width,
+            height: (croppedRegion ?? builtinBounds)!.height,
+          },
+        }
+      : {}),
     // A trusted DPI (from PDF page geometry) beats whatever the file claims.
     densityAuthoritative: options?.densityOverride !== undefined,
     sharpMeta: {
@@ -202,6 +223,12 @@ export async function runPipeline(
   // ── 4. Resolution (uses document metadata, not resized) ──────
   push(issues, analyzeResolution(ctx, thresholds));
   push(issues, analyzeResolutionMax(ctx, thresholds));
+  // Arithmetic on two numbers already in hand, so it runs in every mode —
+  // including `fast`, which is where a distant photo needs stopping: before
+  // the upload, not after the OCR bill.
+  t = performance.now();
+  push(issues, analyzeDocumentDistance(ctx, thresholds));
+  timings.documentDistance = performance.now() - t;
 
   // ── 5. File size ─────────────────────────────────────────────
   t = performance.now();
@@ -400,6 +427,22 @@ export async function runPipeline(
       }
     }
 
+    // The frame before it was cropped, for text-line measurement to fall back
+    // to. Deep only, and only when a crop actually happened, so nothing else
+    // pays for it. Costs one more greyscale decode of the original.
+    if (deep && croppedRegion) {
+      try {
+        const frameGrey = await sharp(buffer).greyscale().raw().toBuffer({ resolveWithObject: true });
+        ctx.uncroppedGrey = {
+          data: frameGrey.data,
+          width: frameGrey.info.width,
+          height: frameGrey.info.height,
+        };
+      } catch {
+        // Decode failed — the crop is still measurable on its own.
+      }
+    }
+
     // FFT spectrum computation + built-in FFT analyzers
     t = performance.now();
     ctx.fftSpectrum = computeSpectrum2D(ctx.greyRaw!.data, ctx.greyRaw!.width, ctx.greyRaw!.height, 512) ?? undefined;
@@ -476,6 +519,20 @@ export async function runPipeline(
   //
   // After every analyzer has run, so the feature vector still carries their
   // measurements for training. Only scoring and reporting are affected.
+  //
+  // This runs *before* the preflight floor below, and that order is load-bearing.
+  //
+  // Checking the floor against the unfiltered list looks like the stricter,
+  // safer reading. It is not. Preflight has no preset concept — it measures
+  // every image as a page of text — so it rejects a clean ID card at every DPI
+  // from 200 to 600 on `low-contrast`, foreground ratio ~0.002 against its 0.008
+  // floor, and under 300 DPI on `file-too-small` too. Those are the exact checks
+  // this preset drops as meaningless for a card. Honouring them here failed
+  // every legitimate card in test/identity-documents.test.ts.
+  //
+  // The consequence is real and belongs in preflight, not here: for cards the
+  // monotonic guarantee cannot hold while preflight is preset-blind, because
+  // preflight refuses cards this library considers perfect.
   if (thresholds.skipAnalyzers.length > 0) {
     const skip = new Set<AnalyzerName>(thresholds.skipAnalyzers);
     for (let i = issues.length - 1; i >= 0; i--) {

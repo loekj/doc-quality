@@ -256,6 +256,23 @@ let images = [], at = 0, category = 'document', issues = new Set(), open = false
    default. */
 let scaleId = SCALE_ORDER.includes(localStorage.getItem('dq-scale'))
   ? localStorage.getItem('dq-scale') : 'bands5';
+
+/* Who is grading, as an opaque per-device string. Not a name and not an
+   account: the question it answers is whether two people looking at the same
+   image agree, and whether one of them has drifted over a long session. A
+   number is enough for that.
+
+   Minted once and kept, so a device's labels stay attributable across sessions.
+   The 1340 labels that predate this are permanently anonymous — nothing can
+   recover who made them, which is the reason this exists at all. */
+const RATER_KEY = 'dq-rater';
+let raterId = localStorage.getItem(RATER_KEY);
+if (!/^r-[0-9a-f]{8}$/.test(raterId || '')) {
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  raterId = 'r-' + [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
+  try { localStorage.setItem(RATER_KEY, raterId); } catch { /* private mode: this session only */ }
+}
 const isFine = () => scaleId === 'fine';
 let back = [];            // indices we came from, for Undo
 const prefetched = new Map();
@@ -268,6 +285,7 @@ const pending = [];
 let flushing = false;
 
 function enqueue(body) {
+  body.rater = raterId;
   pending.push(body);
   paintQueue();
   flush();

@@ -42,11 +42,13 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   charShapeCVMax: 0.4,
   laplacianEdgeThreshold: 30,
   binarizationThreshold: 128,
-  textXHeightMin: 8,
+  textXHeightMin: 10,
   textStrokeWidthMin: 1.2,
   textLineContrastMin: 40,
   textStrokeSharpnessMin: 0.4,
   textIllegibleFractionMax: 0.15,
+  documentRegionMpMin: 2.0,
+  documentFrameFillMax: 0.35,
   skipAnalyzers: [],
 };
 
@@ -79,7 +81,18 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
     zoneBrightnessMaxDiff: 80, // Receipts have natural gradient from thermal printing
     baselineDeviationMax: 0.03, // Thermal paper curls
     textLineContrastMin: 30,    // Thermal ink fades — pale but still readable
-    textXHeightMin: 7,          // Receipt type is small by design
+    // Receipt type is small by design. Left at 7 while the document floor moved
+    // to 10, because the Tesseract calibration has nothing to say here: not one
+    // receipt in the sample measured under 10px, so the entire band this number
+    // governs is unobserved. Moving it either way would be a guess dressed as a
+    // measurement.
+    textXHeightMin: 7,
+    // A receipt is a narrow strip. It reaches a legible x-height on far fewer
+    // pixels than a page does, because those pixels are not spread across 210mm
+    // — a 32-column roll needs roughly a third of A4's width for the same type
+    // size. Holding it to A4's floor would reject well-shot receipts on the
+    // grounds that a receipt is small, which it is.
+    documentRegionMpMin: 0.8,
   },
 
   /**
@@ -121,6 +134,10 @@ export const PRESETS: Record<ConcretePreset, Partial<Thresholds>> = {
     // file size is a thumbnail check that a card fails on merit — clean scans
     // measured 4 to 34 KB — and bits-per-pixel already covers a starved file.
     skipAnalyzers: ['edgeDensity', 'textContrast', 'perspective', 'textGeometry', 'fileSize'],
+    // ID-1 is 86x54mm. At 300 DPI the whole card is 0.65 MP, and it stays
+    // readable well below that, so the page floor would reject every card for
+    // being card-sized. This matches `resolutionMin` above for the same reason.
+    documentRegionMpMin: 0.65,
   },
 };
 

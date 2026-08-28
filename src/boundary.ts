@@ -377,6 +377,88 @@ function otsuThreshold(hist: Uint32Array, total: number): number {
  * solidly filling its own bounding box, and meaningfully brighter than what
  * surrounds it.
  */
+/**
+ * Solidity of the largest bright region, counting its enclosed holes as part of
+ * it.
+ *
+ * Re-floods the winning region from its seed, then floods the non-region pixels
+ * inward from the bounding box border. Anything the second flood cannot reach
+ * is sealed inside the region — a portrait, a photograph, a block of solid ink
+ * — and belongs to the sheet. Anything it does reach is background that the
+ * bounding box merely happens to span, which is exactly what the solidity gate
+ * exists to reject.
+ *
+ * Both floods are bounded by the 400px thumbnail, so this is a few hundred
+ * thousand operations at worst.
+ */
+function solidityWithHolesFilled(
+  px: Buffer | Uint8Array,
+  w: number,
+  threshold: number,
+  seed: number,
+  box: { minX: number; maxX: number; minY: number; maxY: number },
+): number {
+  if (seed < 0) return 0;
+  const boxW = box.maxX - box.minX + 1;
+  const boxH = box.maxY - box.minY + 1;
+  const boxArea = boxW * boxH;
+  if (boxArea <= 0) return 0;
+
+  // Pass 1: the region itself, in bounding-box coordinates.
+  const inRegion = new Uint8Array(boxArea);
+  const stack = new Int32Array(boxArea);
+  let top = 0;
+  const seedX = seed % w;
+  const seedY = (seed - seedX) / w;
+  const seedIdx = (seedY - box.minY) * boxW + (seedX - box.minX);
+  inRegion[seedIdx] = 1;
+  stack[top++] = seedIdx;
+  let regionArea = 0;
+  while (top > 0) {
+    const i = stack[--top];
+    const x = i % boxW;
+    const y = (i - x) / boxW;
+    regionArea++;
+    const push = (nx: number, ny: number): void => {
+      if (nx < 0 || ny < 0 || nx >= boxW || ny >= boxH) return;
+      const ni = ny * boxW + nx;
+      if (inRegion[ni]) return;
+      if (px[(ny + box.minY) * w + (nx + box.minX)] <= threshold) return;
+      inRegion[ni] = 1;
+      stack[top++] = ni;
+    };
+    push(x - 1, y); push(x + 1, y); push(x, y - 1); push(x, y + 1);
+  }
+
+  // Pass 2: background reachable from the border. What it misses is a hole.
+  const outside = new Uint8Array(boxArea);
+  top = 0;
+  const seedEdge = (i: number): void => {
+    if (inRegion[i] || outside[i]) return;
+    outside[i] = 1;
+    stack[top++] = i;
+  };
+  for (let x = 0; x < boxW; x++) { seedEdge(x); seedEdge((boxH - 1) * boxW + x); }
+  for (let y = 0; y < boxH; y++) { seedEdge(y * boxW); seedEdge(y * boxW + boxW - 1); }
+  let outsideArea = 0;
+  while (top > 0) {
+    const i = stack[--top];
+    const x = i % boxW;
+    const y = (i - x) / boxW;
+    outsideArea++;
+    const push = (nx: number, ny: number): void => {
+      if (nx < 0 || ny < 0 || nx >= boxW || ny >= boxH) return;
+      const ni = ny * boxW + nx;
+      if (inRegion[ni] || outside[ni]) return;
+      outside[ni] = 1;
+      stack[top++] = ni;
+    };
+    push(x - 1, y); push(x + 1, y); push(x, y - 1); push(x, y + 1);
+  }
+
+  return (boxArea - outsideArea) / boxArea;
+}
+
 async function detectByBrightRegion(buffer: Buffer): Promise<DetectedBounds | null> {
   const meta = await sharp(buffer).metadata();
   const origW = meta.width || 0;
@@ -403,6 +485,7 @@ async function detectByBrightRegion(buffer: Buffer): Promise<DetectedBounds | nu
   const seen = new Uint8Array(total);
   const stack = new Int32Array(total);
   let bestArea = 0;
+  let bestSeed = -1;
   let best = { minX: 0, maxX: 0, minY: 0, maxY: 0 };
 
   for (let start = 0; start < total; start++) {
@@ -431,6 +514,7 @@ async function detectByBrightRegion(buffer: Buffer): Promise<DetectedBounds | nu
 
     if (area > bestArea) {
       bestArea = area;
+      bestSeed = start;
       best = { minX, maxX, minY, maxY };
     }
   }
@@ -444,9 +528,30 @@ async function detectByBrightRegion(buffer: Buffer): Promise<DetectedBounds | nu
   // A sheet of paper fills its own bounding box. A scattering of bright
   // speckles across a dark frame does not, and neither does a bright object
   // with a long thin arm reaching across the image.
-  if (bestArea / (regionW * regionH) < MIN_SOLIDITY) return null;
+  //
+  // Measured with the region's enclosed holes filled in, because a document is
+  // not required to be uniformly bright to be a document. An ID card's portrait
+  // photograph is a dark rectangle covering a third of it; a page with a figure
+  // on it has the same shape. Both punch a hole straight through the bright
+  // class and drop raw solidity under the floor while the page's outline stays
+  // perfectly crisp — a German ID card lying on a desk, filling 22% of the
+  // frame, measured 0.67 raw and 0.90 filled. That was the archetype of the
+  // capture this library most needs to catch, thrown away for containing a face.
+  //
+  // Filling can only raise the number, so nothing that passes today can fail
+  // tomorrow: across the same 450-image sample every one of the 123 regions
+  // already clearing the floor still cleared it, and 13 more joined them. A
+  // scatter of speckles is unaffected — bright fragments with dark sky between
+  // them enclose nothing, and the gate still turns them away.
+  if (solidityWithHolesFilled(px, w, threshold, bestSeed, best) < MIN_SOLIDITY) return null;
 
   const coverage = (regionW * regionH) / total;
+  // The brightest region is the whole picture. Reporting it as the document was
+  // tried and reverted: on a scan it is true and buys nothing — the distance
+  // check is silent for a page filling its frame either way, no crop is taken,
+  // and the preset resolves to the same thing — while on an image whose
+  // background outshines its document it is simply wrong, naming the surface as
+  // the page. `null` here means "no idea", which on those inputs is accurate.
   if (coverage > MAX_REGION_COVERAGE) return null;
 
   const aspect = regionW / regionH;

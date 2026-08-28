@@ -36,6 +36,21 @@ export const FEATURE_NAMES: readonly string[] = [
   // line up at inference. See the position-stability test in features.test.ts.
   'laplacianSignedStdev', 'laplacianSignedMeanAbs',
   'laplacianSignedEdgeRatio', 'laplacianSaturationRatio',
+  // Framing and measurement provenance (52-53) — appended for the same
+  // index-stability reason as the block above.
+  //
+  // `documentFrameFill` is the share of the frame the page occupies, and NaN
+  // whenever boundary detection did not find the page — which is most of the
+  // time, so a model must handle it missing rather than treat it as zero. Where
+  // it is present it is the strongest framing signal measured: against
+  // Tesseract over 440 corpus images, fill under 0.2 was 100% unreadable and
+  // 0.2-0.35 was 88%.
+  //
+  // `textMeasurementReliable` says whether features 43-47 describe text at all.
+  // Without it a model cannot tell a 24px lowercase body from the 800px one a
+  // mis-segmented page produces, and roughly a third of deep runs produce the
+  // latter.
+  'documentFrameFill', 'textMeasurementReliable',
 ] as const;
 
 const PRESET_INDEX: Record<string, number> = { document: 0, receipt: 1, card: 2 };
@@ -59,6 +74,17 @@ export function extractFeatures(
   const totalPixels = width * height;
   const isJpeg = (ctx.sharpMeta?.format === 'jpeg') ? 1 : 0;
   const bpp = totalPixels > 0 ? (fileSize * 8) / totalPixels : 0;
+
+  // 52: how much of the frame the page fills. Against the encoded frame, since
+  // `ctx.metadata` is the crop once one has been taken and a region compared to
+  // its own crop is always 1. Stays NaN when the page was never located — that
+  // is "unknown", and a model must not read it as "fills nothing".
+  if (ctx.documentRegion) {
+    const framePixels = ctx.encodedPixels ?? totalPixels;
+    if (framePixels > 0) {
+      values[52] = (ctx.documentRegion.width * ctx.documentRegion.height) / framePixels;
+    }
+  }
 
   // Brightness stats
   let brightnessAvg = NaN;
@@ -242,7 +268,15 @@ export function extractFeatures(
     if (mode === 'deep') {
       const tl = ctx.textLineMetrics;
       values[42] = tl?.lineCount ?? 0;
-      if (tl) {
+      values[53] = tl ? (tl.reliable ? 1 : 0) : NaN;
+      // Only when the numbers describe text. An unreliable reading is not a
+      // small error to be learned around: when a page fails to separate from
+      // its background the whole sheet returns as one band, and 43-47 then
+      // carry a lowercase body of several hundred pixels, a stroke width to
+      // match and a clean zero illegible fraction. Handing that to a model as
+      // measurement teaches it that enormous text means a good page, on about a
+      // third of every deep run. NaN is what actually happened.
+      if (tl?.reliable) {
         values[43] = tl.medianXHeight;
         values[44] = tl.medianStrokeWidth;
         values[45] = tl.medianContrast;

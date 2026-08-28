@@ -1,0 +1,1293 @@
+{
+ "generated": "2026-08-27T15:27:35.513Z",
+ "checked": 5057,
+ "unchecked": [
+  "documents/unsorted/doc-00480.jpg",
+  "documents/unsorted/doc-00623.jpg",
+  "documents/unsorted/doc-00858.jpg",
+  "documents/unsorted/doc-00862.jpg",
+  "documents/unsorted/doc-00882.jpg",
+  "documents/unsorted/doc-01208.jpg",
+  "receipts/very-bad/rec-01221.jpg",
+  "receipts/very-bad/rec-01361.jpg"
+ ],
+ "groups": [
+  {
+   "canonical": "documents/unsorted/doc-00189.heic",
+   "duplicates": [
+    "documents/unsorted/doc-00287.heic"
+   ],
+   "categories": [
+    "documents"
+   ],
+   "labelled": [
+    "documents/unsorted/doc-00189.heic",
+    "documents/unsorted/doc-00287.heic"
+   ]
+  },
+  {
+   "canonical": "documents/unsorted/doc-00515.heic",
+   "duplicates": [
+    "documents/unsorted/doc-01440.heic"
+   ],
+   "categories": [
+    "documents"
+   ],
+   "labelled": [
+    "documents/unsorted/doc-00515.heic"
+   ]
+  },
+  {
+   "canonical": "documents/unsorted/doc-00569.heic",
+   "duplicates": [
+    "documents/unsorted/doc-01290.heic"
+   ],
+   "categories": [
+    "documents"
+   ],
+   "labelled": [
+    "documents/unsorted/doc-00569.heic"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00007.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01521.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00009.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01584.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00017.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01202.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00017.jpg",
+    "receipts/unsorted/rec-01202.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00018.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00266.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00019.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01571.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00020.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00042.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00026.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00466.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00027.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00991.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00030.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01326.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00030.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00034.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00075.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00036.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01499.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00038.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01378.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00039.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00439.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00040.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01574.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00041.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01739.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00058.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00309.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00058.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00064.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01547.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00065.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01820.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00066.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00391.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00075.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01718.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00078.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00119.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00080.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00865.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00085.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00510.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00086.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01106.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00090.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00193.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00093.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00120.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00094.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00384.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00096.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01529.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00096.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00098.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01829.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00102.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00035.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00102.jpg",
+    "receipts/unsorted/rec-00035.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00105.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01123.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00106.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01286.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00110.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01534.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00110.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00112.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00228.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00124.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00454.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00124.jpg",
+    "receipts/unsorted/rec-00454.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00127.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00267.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00127.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00129.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00049.jpg",
+    "receipts/unsorted/rec-00066.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00129.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00132.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00253.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00141.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01728.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00155.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00753.jpg",
+    "receipts/unsorted/rec-01414.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00160.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00547.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00163.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01317.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "photos/unsorted/photo-00165.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01354.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "photos/unsorted/photo-00165.jpg"
+   ]
+  },
+  {
+   "canonical": "photos/unsorted/photo-00167.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01606.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00002.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00956.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00002.jpg",
+    "receipts/unsorted/rec-00956.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00014.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00301.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00021.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00645.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00022.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01463.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00029.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00586.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00051.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00353.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00086.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00926.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00086.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00131.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01073.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00138.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00972.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00151.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01581.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00169.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00843.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00214.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01088.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00222.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01436.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00255.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00488.jpg",
+    "receipts/unsorted/rec-00503.jpg",
+    "receipts/unsorted/rec-00841.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00255.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00261.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01472.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00271.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01139.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00298.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00889.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00343.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00977.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00385.jpg",
+   "duplicates": [
+    "photos/unsorted/photo-00004.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00385.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00393.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01368.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00425.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01022.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00426.jpg",
+   "duplicates": [
+    "photos/unsorted/photo-00146.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00426.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00436.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01266.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00452.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01328.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00455.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01734.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00455.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00500.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01699.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00517.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00469.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00517.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00544.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00583.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00566.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00695.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00593.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01054.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00620.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01292.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00630.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01450.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00678.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01496.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00678.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00680.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01774.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00680.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00728.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00110.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00728.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00731.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00775.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00740.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01242.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-00740.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00757.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01700.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00767.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00997.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00786.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00835.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00815.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01302.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00887.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01754.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00909.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01416.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00929.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01358.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00931.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01448.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00945.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01627.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00971.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01296.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-00989.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01042.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01052.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01359.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01085.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01268.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01109.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01339.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01199.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01248.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01225.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01541.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01230.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01539.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01245.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01398.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01255.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01592.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01362.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00934.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01362.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01387.jpg",
+   "duplicates": [
+    "photos/unsorted/photo-00139.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01387.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01454.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00186.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01454.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01470.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01673.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": []
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01485.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01809.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01485.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01508.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00834.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01508.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01520.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01260.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01520.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01543.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01527.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01543.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01573.jpg",
+   "duplicates": [
+    "photos/unsorted/photo-00152.jpg"
+   ],
+   "categories": [
+    "photos",
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01573.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01712.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-01118.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01712.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01800.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00286.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01800.jpg"
+   ]
+  },
+  {
+   "canonical": "receipts/unsorted/rec-01814.jpg",
+   "duplicates": [
+    "receipts/unsorted/rec-00264.jpg"
+   ],
+   "categories": [
+    "receipts"
+   ],
+   "labelled": [
+    "receipts/unsorted/rec-01814.jpg"
+   ]
+  }
+ ]
+}

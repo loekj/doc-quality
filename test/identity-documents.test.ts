@@ -63,7 +63,6 @@ describe('identity documents under the card preset', () => {
     const bad: Array<[string, Buffer]> = [
       ['blurred', await idCard(300, { blur: 3 })],
       ['too low resolution', await idCard(300, { resize: 337 })],
-      ['underexposed', await idCard(300, { dark: 0.35 })],
       ['overexposed', await idCard(300, { bright: 1.6 })],
       ['heavily compressed', await idCard(300, { q: 6 })],
     ];
@@ -72,6 +71,38 @@ describe('identity documents under the card preset', () => {
       expect(result.pass, `${name} card should fail`).toBe(false);
     }
   }, 180_000);
+
+  /**
+   * Underexposure is the one that got away, and it is worth saying why.
+   *
+   * `idCard(300, { dark: 0.35 })` used to fail, on `illegible-text`. That
+   * verdict was an artefact: the portrait rectangle covers 60% of the card and
+   * shades darker than the plastic around it, so Otsu classed it as ink and the
+   * fields beside it fell inside the same band. The analyzer measured one
+   * "line" with a 383px lowercase body on a 638px card, and called it illegible.
+   * Text-line reliability now rejects that reading — correctly, since nothing
+   * about it describes the text — and the honest signals left are the ones that
+   * were always doing the real work: `dim-background` at p90 77 against 170,
+   * scoring 0.53 against a 0.5 bar.
+   *
+   * Tightening a threshold to reclaim it was measured and rejected. Across 100
+   * graded cards from the labelling set, this fixture's mean brightness of 74
+   * sits on the 5th percentile of the cards humans marked *good*: raising the
+   * card floor from 60 to 100 catches 10 more of the bad ones and fails 10 of
+   * the good. At this exposure a real card is genuinely borderline, and 0.53 is
+   * an honest description of that. Segmenting text beside a portrait needs
+   * column-aware banding, which is the actual fix and a larger one.
+   */
+  it('scores an underexposed card as borderline, on exposure not on text', async () => {
+    const result = await checkQuality(await idCard(300, { dark: 0.35 }), {
+      mode: 'deep', preset: 'card', timeout: 0,
+    });
+    const codes = result.issues.map((i) => i.code);
+    expect(codes).toContain('dim-background');
+    expect(codes).toContain('text-unmeasurable');
+    expect(codes).not.toContain('illegible-text');
+    expect(result.score).toBeLessThan(0.6);
+  }, 60_000);
 
   it('keeps skipped analyzers in the feature vector', async () => {
     // Skipping affects the rule-based score and the reported issues only. A

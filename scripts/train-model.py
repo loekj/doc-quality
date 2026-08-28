@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -56,6 +57,12 @@ ALL_FEATURES = FAST_FEATURES + [
     # Signed Laplacian — thorough and deep only; NaN for fast-mode rows.
     'laplacianSignedStdev', 'laplacianSignedMeanAbs',
     'laplacianSignedEdgeRatio', 'laplacianSaturationRatio',
+    # Framing and measurement provenance (52-53). Both are legitimately missing
+    # on most rows: documentFrameFill only exists where boundary detection found
+    # the page, and textMeasurementReliable only where deep mode ran. XGBoost
+    # handles NaN natively; do not impute either to zero, which would read as
+    # "fills none of the frame" and "definitely unreliable".
+    'documentFrameFill', 'textMeasurementReliable',
 ]
 
 # Must match src/preflight-features.ts exactly, in order. Every name must also
@@ -66,7 +73,52 @@ PREFLIGHT_FEATURES = [
 ]
 
 
-def tree_to_json(tree, node_id=0):
+def make_feature_index(feature_names):
+    """Resolve an XGBoost split column to its index in the runtime vector.
+
+    trees_to_dataframe() reports the split column differently across versions:
+    xgboost < 2.1 emitted positional names ("f0", "f12"); 2.1+ emits the real
+    column name ("laplacianStdev") whenever the model was fitted from a named
+    DataFrame, which is what train_model does.
+
+    The old code did int(name.replace('f', '')), which crashes on a real name -
+    and would silently yield the WRONG index for any name that happened to
+    survive stripping every 'f'. Exported trees address features by position
+    (a node holding split: 8 reads slot 8 of the runtime vector), so a wrong
+    index is a silently miscalibrated model. Anything unrecognised raises.
+    """
+    lookup = {name: idx for idx, name in enumerate(feature_names)}
+
+    def resolve(raw):
+        if raw in lookup:
+            return lookup[raw]
+        if re.fullmatch(r'f\d+', str(raw)):
+            return int(str(raw)[1:])
+        raise ValueError(
+            f"Cannot map split column {raw!r} to a feature index. "
+            f"Known features: {len(feature_names)}. "
+            "Check that feature_names matches the columns the model was fitted on."
+        )
+
+    return resolve
+
+
+def node_ref(raw):
+    """Read a child-node reference from trees_to_dataframe().
+
+    The Yes/No/Missing columns carry a qualified node ID ("0-1" = tree 0,
+    node 1) in xgboost 2.1+, and a bare node index in older versions. The
+    surrounding code already normalises the ID column this way; these three
+    columns need the same treatment. Raises rather than guessing, because a
+    misread child pointer silently reshapes the exported tree.
+    """
+    text = str(raw)
+    if '-' in text:
+        return int(text.split('-')[1])
+    return int(text)
+
+
+def tree_to_json(tree, feature_index, node_id=0):
     """Convert a single XGBoost tree to nested JSON format."""
     tree_df = tree
     node = tree_df[tree_df['Node'] == node_id].iloc[0]
@@ -74,14 +126,54 @@ def tree_to_json(tree, node_id=0):
     if node['Feature'] == 'Leaf':
         return {'leaf': float(node['Gain'])}
 
+    yes_id = node_ref(node['Yes'])
     result = {
-        'split': int(node['Feature'].replace('f', '')),
+        'split': feature_index(node['Feature']),
         'split_condition': float(node['Split']),
-        'missing': 1 if int(node['Yes']) == int(node['Missing']) else 0,
-        'left': tree_to_json(tree_df, int(node['Yes'])),
-        'right': tree_to_json(tree_df, int(node['No'])),
+        'missing': 1 if yes_id == node_ref(node['Missing']) else 0,
+        'left': tree_to_json(tree_df, feature_index, yes_id),
+        'right': tree_to_json(tree_df, feature_index, node_ref(node['No'])),
     }
     return result
+
+
+def fitted_base_score(model):
+    """The base_score the FITTED booster actually uses.
+
+    Not model.get_params()['base_score'] -- in xgboost 2.1+ that stays None
+    until fit, and is then auto-computed from the training labels rather than
+    left at the old 0.5 default. get_params().get('base_score', 0.5) returns
+    None in that case (the key is present, so the default never applies), and
+    coercing None to 0.5 would offset every exported prediction by the
+    difference between 0.5 and the real intercept. Read it back from the
+    serialised booster config instead, which is authoritative for both eras.
+    """
+    config = json.loads(model.get_booster().save_config())
+    raw = config['learner']['learner_model_param'].get('base_score')
+    if raw is None:
+        param = model.get_params().get('base_score')
+        if param is None:
+            raise ValueError(
+                'Could not determine base_score from the fitted booster. '
+                'Exporting a guessed intercept would miscalibrate the model.'
+            )
+        return float(param)
+
+    # xgboost serialises this as a string, and since it gained multi-output
+    # support the string may be a bracketed vector: "[4.4972035E-1]". A
+    # single-output regressor has exactly one entry; more than one means the
+    # runtime's scalar intercept cannot represent this model, so refuse rather
+    # than silently exporting the first component.
+    text = str(raw).strip()
+    if text.startswith('['):
+        parts = [x for x in text.strip('[]').split(',') if x.strip()]
+        if len(parts) != 1:
+            raise ValueError(
+                f'base_score is a {len(parts)}-element vector ({text}); the '
+                'exported format holds a single scalar intercept.'
+            )
+        text = parts[0]
+    return float(text)
 
 
 def model_to_json(model, feature_names):
@@ -89,17 +181,19 @@ def model_to_json(model, feature_names):
     booster = model.get_booster()
     trees_df = booster.trees_to_dataframe()
 
+    feature_index = make_feature_index(feature_names)
+
     tree_ids = trees_df['Tree'].unique()
     trees = []
     for tid in sorted(tree_ids):
         tree_data = trees_df[trees_df['Tree'] == tid].copy()
         # Extract node IDs from the ID column (format: "0-0", "0-1", etc.)
         tree_data['Node'] = tree_data['ID'].apply(lambda x: int(x.split('-')[1]))
-        trees.append([tree_to_json(tree_data)])
+        trees.append([tree_to_json(tree_data, feature_index)])
 
     return {
         'trees': trees,
-        'base_score': float(model.get_params().get('base_score', 0.5)),
+        'base_score': fitted_base_score(model),
         'objective': 'reg:squarederror',
         'feature_names': feature_names,
     }
@@ -269,8 +363,14 @@ def main():
     # stay together (no data leakage between train and test).
     # Stratify by tier bucket so the test set has representative coverage.
     path_labels = df.groupby('path')['label'].first()
+    # include_lowest: pd.cut is left-open by default, so a score of exactly 0.0
+    # -- a legitimate "worst possible" slider position -- lands outside every bin
+    # and becomes NaN, which train_test_split rejects with "Input contains NaN".
+    # The top edge is already stretched to 1.01 for the same reason at the other
+    # end; this closes the bottom.
     tier_bins = pd.cut(path_labels, bins=[0, 0.25, 0.5, 0.75, 1.01],
-                       labels=['very-bad', 'bad', 'good', 'very-good'])
+                       labels=['very-bad', 'bad', 'good', 'very-good'],
+                       include_lowest=True)
     unique_paths = path_labels.index.values
     train_paths, test_paths = train_test_split(
         unique_paths, test_size=args.test_size, random_state=args.seed,

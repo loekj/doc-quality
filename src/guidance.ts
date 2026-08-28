@@ -52,5 +52,8 @@ export const ISSUE_GUIDANCE: Record<IssueCode, string> = {
   'analysis-timeout': 'The quality check did not finish in time. Please try again, or upload a smaller file.',
   'text-too-small': 'The text is too small to read reliably. Please move closer, or scan at a higher DPI.',
   'illegible-text': 'Some lines of text cannot be read. Please retake the photo with better focus and lighting.',
+  'document-too-far': 'The document is too far away. Please move closer so it fills the frame.',
+  'text-unmeasurable': 'The text could not be assessed. Please photograph the document straight on, filling the frame.',
+  'unreadable-file': 'This file could not be read. Your browser may not support this format — try saving it as JPEG or PNG and uploading again.',
   'custom': 'A quality issue was detected with this image.',
 };

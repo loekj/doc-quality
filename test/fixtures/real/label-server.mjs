@@ -129,13 +129,143 @@ function shuffleImages(images) {
   return arr;
 }
 
+/**
+ * Paths that are byte-identical to another path already in the queue.
+ *
+ * The corpus was built from overlapping public datasets, so the same photograph
+ * appears in it more than once — 115 groups, and 48 of those are filed under
+ * two different categories, which means the same picture is graded against two
+ * different presets. Serving both wastes a rater's time on a decided image and
+ * lets a train/test split put one copy on each side, where a model reciting
+ * looks like a model generalising.
+ *
+ * Only unlabelled copies are dropped. Where a duplicate already carries a human
+ * judgement it stays in the queue, because removing it would orphan that
+ * judgement — `duplicates.json` records every group so a trainer can keep the
+ * remaining pairs on the same side of a split.
+ *
+ * Regenerate with `node scripts/find-duplicates.mjs`. Absent, everything is
+ * served, which is the old behaviour.
+ */
+async function loadDuplicateSkips(labels) {
+  try {
+    const raw = await readFile(join(BASE, 'duplicates.json'), 'utf-8');
+    const groups = JSON.parse(raw).groups ?? [];
+    const probes = pickProbeGroups(groups);
+    const kept = new Set(probes.flatMap((g) => [g.canonical, ...g.duplicates]));
+    const skip = new Set();
+    for (const group of groups) {
+      for (const path of group.duplicates ?? []) {
+        if (!labels[path] && !kept.has(path)) skip.add(path);
+      }
+    }
+    return { skip, probes };
+  } catch {
+    return { skip: new Set(), probes: [] };
+  }
+}
+
+/**
+ * Duplicate pairs deliberately left in the queue, to measure the rater.
+ *
+ * Every accuracy number in this project is stated as agreement with human
+ * grades — and nobody knows what that number can be. Five pairs of the corpus
+ * happened to get graded twice and four of them matched; the fifth read 0.40
+ * against 0.55, opposite sides of the pass line. That is the entire evidence
+ * base, and on it the library's 76% is either close to a ceiling or nowhere
+ * near one, with no way to tell which.
+ *
+ * A pair costs one extra grading and buys a reading on that ceiling. Byte
+ * identical, so a disagreement is the rater changing, never the image.
+ *
+ * Has to be seeded before a grading run, not after: repeats cannot be
+ * retrofitted into a session that already happened, which is why this exists at
+ * all rather than being computed later from whatever turned up.
+ *
+ * Selection is a fixed stride over a sorted list, so the same pairs are chosen
+ * on every restart and a probe does not quietly become a normal image.
+ */
+const PROBE_TARGET = 40;
+
+function pickProbeGroups(groups) {
+  // Ungraded pairs only. A group already carrying a judgement is measuring
+  // whoever graded it before, and there is no record of who that was.
+  const eligible = groups
+    .filter((g) => (g.labelled ?? []).length === 0 && (g.duplicates ?? []).length === 1)
+    .sort((a, b) => a.canonical.localeCompare(b.canonical));
+  if (eligible.length <= PROBE_TARGET) return eligible;
+  const stride = eligible.length / PROBE_TARGET;
+  return Array.from({ length: PROBE_TARGET }, (_, i) => eligible[Math.floor(i * stride)]);
+}
+
+/**
+ * Push the second copy of each probe pair far from the first.
+ *
+ * A repeat recognised is not a repeat. The shuffle alone could seat both copies
+ * within a screen of each other, so the twin is moved to roughly two thirds of
+ * the way through whatever remains after the first — hundreds of images later
+ * in a queue this size, and far enough that the answer comes from the picture
+ * rather than from memory of the last one.
+ */
+function spaceProbePairs(images, probes) {
+  if (probes.length === 0) return images;
+  const twins = new Map();
+  for (const group of probes) twins.set(group.duplicates[0], group.canonical);
+  const rest = images.filter((image) => !twins.has(image.path));
+  const held = images.filter((image) => twins.has(image.path));
+  const out = [...rest];
+  for (const image of held) {
+    const firstAt = out.findIndex((i) => i.path === twins.get(image.path));
+    // The first copy was dropped or never present — nothing to space against.
+    if (firstAt === -1) { out.push(image); continue; }
+    const target = Math.min(out.length, firstAt + Math.floor((out.length - firstAt) * 0.66) + 1);
+    out.splice(target, 0, image);
+  }
+  return out;
+}
+
+/**
+ * Order the queue so the least-graded category comes first.
+ *
+ * Grading drifted badly toward cards: 44% of them were done against 17% of
+ * receipts, which left cards as 52% of every label while being 31% of the
+ * corpus. A model trained on that learns what a bad card looks like and guesses
+ * at the rest.
+ *
+ * Recomputed on each scan from the labels as they stand, so it corrects itself
+ * — as receipts catch up they stop being served first. Within a category the
+ * existing deterministic shuffle is kept, so order is still reproducible.
+ */
+function orderByCoverage(images, labels) {
+  const byCategory = new Map();
+  for (const image of images) {
+    if (!byCategory.has(image.category)) byCategory.set(image.category, []);
+    byCategory.get(image.category).push(image);
+  }
+  const coverage = (list) =>
+    list.filter((image) => labels[image.path]).length / (list.length || 1);
+  return [...byCategory.entries()]
+    .sort((a, b) => coverage(a[1]) - coverage(b[1]) || a[0].localeCompare(b[0]))
+    .flatMap(([, list]) => list);
+}
+
 /** Scan fixture directories and return image list (or use manifest for S3 mode) */
 async function scanImages() {
+  // Labels decide two things about the queue: which duplicates can be dropped
+  // without orphaning a judgement, and which category is furthest behind.
+  const labels = await loadLabels();
+  const { skip, probes } = await loadDuplicateSkips(labels);
+  const prepare = (images) =>
+    spaceProbePairs(
+      orderByCoverage(shuffleImages(images.filter((i) => !skip.has(i.path))), labels),
+      probes,
+    );
+
   // Use manifest.json if images aren't on disk (S3 mode)
   const manifestPath = join(BASE, 'manifest.json');
   try {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf-8'));
-    if (manifest.length > 0) return shuffleImages(manifest);
+    if (manifest.length > 0) return prepare(manifest);
   } catch {}
 
   // Fall back to scanning directories
@@ -160,7 +290,7 @@ async function scanImages() {
       }
     }
   }
-  return shuffleImages(images);
+  return prepare(images);
 }
 
 /** Read request body as string */
@@ -349,6 +479,78 @@ const server = createServer(async (req, res) => {
     }
 
     // GET /api/images — list all images with labels
+    /**
+     * How consistent are the people grading?
+     *
+     * Reads every duplicate group that now carries two or more judgements and
+     * asks whether they landed on the same side of the pass line. Split by
+     * whether the same device graded both — one rater contradicting themselves
+     * is a different problem from two raters disagreeing, and only the first is
+     * fixable by slowing down.
+     *
+     * The number this produces is the ceiling. A library agreeing with humans
+     * 76% of the time is close to perfect if humans agree with themselves 78%,
+     * and has plenty left to give if they agree 97%. Every accuracy figure in
+     * this project is uninterpretable until this has a real sample behind it.
+     */
+    if (pathname === '/api/agreement' && req.method === 'GET') {
+      const labels = await loadLabels();
+      let groups = [];
+      try {
+        groups = JSON.parse(await readFile(join(BASE, 'duplicates.json'), 'utf-8')).groups ?? [];
+      } catch { /* no duplicate index — the report is simply empty */ }
+
+      const pairs = [];
+      for (const group of groups) {
+        const graded = [group.canonical, ...(group.duplicates ?? [])]
+          .filter((path) => labels[path] && labels[path].score !== null);
+        if (graded.length < 2) continue;
+        const entries = graded.map((path) => ({ path, ...labels[path] }));
+        const verdicts = new Set(entries.map((e) => e.score >= 0.5));
+        const raters = new Set(entries.map((e) => e.rater ?? 'unknown'));
+        const scores = entries.map((e) => e.score);
+        pairs.push({
+          paths: graded,
+          scores,
+          spread: Math.max(...scores) - Math.min(...scores),
+          agreed: verdicts.size === 1,
+          sameRater: raters.size === 1 && !raters.has('unknown'),
+          anonymous: raters.has('unknown'),
+          crossCategory: (group.categories ?? []).length > 1,
+        });
+      }
+
+      const summarise = (list) => {
+        if (list.length === 0) return { pairs: 0 };
+        const agreed = list.filter((p) => p.agreed).length;
+        const spreads = list.map((p) => p.spread).sort((a, b) => a - b);
+        return {
+          pairs: list.length,
+          agreedOnPassFail: agreed,
+          agreementRate: Math.round((100 * agreed) / list.length) / 100,
+          medianScoreSpread: spreads[spreads.length >> 1],
+        };
+      };
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        note: 'Byte-identical image pairs graded more than once. This is the ceiling '
+          + 'any model accuracy should be read against.',
+        all: summarise(pairs),
+        sameRaterTwice: summarise(pairs.filter((p) => p.sameRater)),
+        differentRaters: summarise(pairs.filter((p) => !p.sameRater && !p.anonymous)),
+        involvingAnonymousLabels: summarise(pairs.filter((p) => p.anonymous)),
+        // The same picture offered as a receipt and as a photo picks up a
+        // different preset chip, so a disagreement here may be the label
+        // talking rather than the rater.
+        crossCategory: summarise(pairs.filter((p) => p.crossCategory)),
+        disagreements: pairs.filter((p) => !p.agreed)
+          .sort((a, b) => b.spread - a.spread)
+          .slice(0, 25),
+      }, null, 1));
+      return;
+    }
+
     if (pathname === '/api/images' && req.method === 'GET') {
       if (!cachedImages) cachedImages = await scanImages();
       const [images, labels] = [cachedImages, await loadLabels()];
@@ -384,6 +586,18 @@ const server = createServer(async (req, res) => {
         // unusable; extract-features drops entries whose score is null.
         score: body.label === 'skip' ? null : (body.score ?? null),
         category: body.category ?? null,
+        // Which device graded it. An opaque random string minted in the
+        // browser, not a name or an account — enough to ask whether two graders
+        // agree and whether one has drifted, and nothing more.
+        //
+        // Cannot be added after the fact: the 1340 labels collected before this
+        // existed are permanently anonymous, and every hour of grading without
+        // it adds more. Recorded as 'unknown' when a client does not send one,
+        // so those stay distinguishable from a real cohort rather than blending
+        // into whoever is grading now.
+        rater: typeof body.rater === 'string' && /^r-[0-9a-f]{8}$/.test(body.rater)
+          ? body.rater
+          : 'unknown',
         issues: body.issues ?? [],
         notes: body.notes ?? '',
         timestamp: new Date().toISOString(),

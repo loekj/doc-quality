@@ -69,6 +69,21 @@ export interface TextLineMetrics {
   illegibleFraction: number;
   /** Greyscale threshold Otsu chose — useful for diagnostics. */
   binarizationThreshold: number;
+  /**
+   * Whether these numbers describe text at all.
+   *
+   * Otsu splits the frame into two classes, so a page that does not fill the
+   * frame gets split from the desk rather than from its own ink: the whole
+   * sheet becomes a single "line" whose x-height is most of the page. Every
+   * legibility floor then passes by a wide margin, and the images that most
+   * need rejecting — a document photographed from across the room — come back
+   * as the cleanest text on file. Measured on a 3000x4000 frame holding a page
+   * at 20% of its height: `lineCount` 1, `medianXHeight` 800px, zero illegible.
+   *
+   * False means the measurement is an artefact. Callers must not read a verdict
+   * out of the medians; they should say the text could not be assessed.
+   */
+  reliable: boolean;
 }
 
 /** Legibility floors. */
@@ -102,6 +117,31 @@ const MIN_LINE_INK_RATIO = 0.004;
 const X_HEIGHT_INK_SHARE = 0.5;
 /** Guard against pathological inputs. */
 const MAX_LINES = 4000;
+/**
+ * Fewer bands than this and no segmentation happened at all.
+ *
+ * Two, not three. Three was tried and rejected: it marks a sparse capture
+ * unreadable purely for being sparse, and an underexposed ID card — a handful
+ * of short fields — stopped failing because its genuine illegibility was
+ * dismissed as unmeasurable. The failure being guarded against is the page
+ * arriving as a single band, and one band is what that produces. Two separated
+ * bands mean the threshold found ink against paper, however few.
+ */
+const MIN_RELIABLE_LINES = 2;
+/**
+ * A real line's lowercase body never occupies this share of the page height.
+ *
+ * 10pt text on A4 is about 0.6% of the page. Even a single word of display type
+ * across a card stays under 5%. Anything above it is the page itself, measured
+ * as if it were a letter.
+ *
+ * This is the load-bearing half of the test. Across 48 phone photographs of
+ * receipts it flagged 29 mis-segmentations to the line-count guard's 34, and
+ * the 27 they agreed on were the same images; on 74 graded samples, 22 against
+ * 22. The line count adds little and costs the sparse-document case, which is
+ * why it is set as low as it is.
+ */
+const MAX_RELIABLE_XHEIGHT_SHARE = 0.05;
 /**
  * A band is rejected as non-text when it is both taller than this share of the
  * page *and* far taller than the page's other bands.
@@ -303,17 +343,22 @@ export function analyzeTextLines(
 
   const xHeights = lines.map((l) => l.xHeight);
   const illegible = lines.filter((l) => !l.legible).length;
+  const medianXHeight = median(xHeights);
+  const reliable =
+    lines.length >= MIN_RELIABLE_LINES &&
+    medianXHeight <= height * MAX_RELIABLE_XHEIGHT_SHARE;
 
   return {
     lines,
     lineCount: lines.length,
-    medianXHeight: median(xHeights),
+    medianXHeight,
     medianStrokeWidth: median(lines.map((l) => l.strokeWidth)),
     medianContrast: median(lines.map((l) => l.contrast)),
     medianEdgeSharpness: median(lines.map((l) => l.edgeSharpness)),
     medianStrokeSharpness: median(lines.map((l) => l.strokeSharpness)),
     illegibleFraction: illegible / lines.length,
     binarizationThreshold: threshold,
+    reliable,
   };
 }
 

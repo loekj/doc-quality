@@ -244,11 +244,24 @@ export interface Thresholds {
   /** Greyscale threshold for text binarization 0-255 (default: 128) */
   binarizationThreshold: number;
   /**
-   * Minimum lowercase body height in pixels for OCR (default: 8).
+   * Minimum lowercase body height in pixels, below which OCR stops working.
    *
-   * Measured on 10pt text: 5px at 72 DPI, 7px at 96, 9px at 120, 11px at 150,
-   * 22px at 300. The floor sits just above where strokes stop resolving.
-   * `deep` mode only.
+   * 10, raised from 8 on Tesseract measurements over the labelling corpus. Of
+   * 103 documents with a trustworthy reading, the 8-10px band came back at a
+   * median word confidence of 53.6 with 63% of files unreadable, while 10-14px
+   * jumped to 83.5 and 36%. Eight admitted a band where OCR mostly fails.
+   *
+   * It flips nothing on the labels that exist today — every image in that band
+   * was already failing for other reasons — so this is a threshold set from
+   * where OCR actually breaks rather than from an observed disagreement. It
+   * will start mattering as grading covers more of the corpus.
+   *
+   * The `receipt` preset keeps its own, lower floor, and deliberately: no
+   * receipt in the sample had an x-height under 10 at all, so there is no
+   * evidence to move it in either direction. `card` inherits this number with
+   * one measured row behind it, which is to say none.
+   *
+   * Re-measure with `scripts/calibrate-ocr.mjs`.
    */
   textXHeightMin: number;
   /** Minimum median stroke thickness in pixels (default: 1.2). `deep` mode only. */
@@ -265,6 +278,47 @@ export interface Thresholds {
   textStrokeSharpnessMin: number;
   /** Share of lines allowed to fail legibility before the page is flagged (default: 0.15). */
   textIllegibleFractionMax: number;
+  /**
+   * Fewest megapixels the document itself may occupy, once found in the frame.
+   *
+   * `resolutionMin` measures the picture; this measures the page inside it. The
+   * two are the same for a scan and diverge for a photograph, which is exactly
+   * the case that needed catching: a 12 MP phone shot of an A4 page held at
+   * arm's length is 12 MP of picture and about 0.8 MP of page, and every check
+   * that reads the frame calls it excellent. Only the page's own pixel count
+   * predicts whether the text will survive OCR.
+   *
+   * Deliberately a count and not a share of the frame. Framing is what a user
+   * controls; pixels are what OCR consumes. A 48 MP camera at 15% fill still
+   * delivers 7 MP of page, and a fill-ratio test would reject it for being far
+   * away when its text is in fact enormous.
+   *
+   * Only applies when boundary detection found the page. There is no honest
+   * number to compare against otherwise.
+   */
+  documentRegionMpMin: number;
+  /**
+   * Largest share of the frame the page may fill and still be called "too far".
+   *
+   * Distance is a thing the photographer can fix, and that only makes sense
+   * while there is empty frame left to close. A page already filling 90% of the
+   * picture and still short of pixels is not far away — it is a small sensor,
+   * which is `low-resolution`'s job, not this one's.
+   *
+   * 0.35 is where Tesseract falls off. Over a 440-image stratified sample of
+   * the labelling corpus, median word confidence by fill ran: under 0.2, one
+   * file, unreadable; 0.2–0.35, seven of eight unreadable; 0.35–0.5, two of
+   * four; 0.5–0.7, four of nine; and at 0.9 and above — 230 files, nearly all
+   * of them — half. Below roughly a third of the frame the page stops being
+   * readable; above it, framing stops predicting anything.
+   *
+   * This is the load-bearing half of the pair. Over the same sample the page's
+   * own megapixel count did not order the outcome at all: 0.3–0.5 MP was 50%
+   * unreadable and 3 MP and above was 58%. `documentRegionMpMin` survives as
+   * the escape hatch for a large sensor — 15% of a 48 MP frame is still 7 MP of
+   * perfectly legible page — not as a predictor in its own right.
+   */
+  documentFrameFillMax: number;
   /**
    * Analyzers whose issues are dropped before scoring (default: none).
    *
@@ -439,6 +493,16 @@ export type IssueCode =
   | 'analysis-timeout'
   | 'text-too-small'
   | 'illegible-text'
+  | 'document-too-far'
+  | 'text-unmeasurable'
+  /**
+   * The file could not be decoded at all.
+   *
+   * Browser-only: `preflight` depends on the browser's own decoders, and they
+   * differ. Safari reads HEIC; Chrome and Firefox generally do not, so a photo
+   * straight off an iPhone is undecodable for most of the web.
+   */
+  | 'unreadable-file'
   | 'custom';
 
 /** Image metadata extracted during analysis */
@@ -484,6 +548,7 @@ export type AnalyzerName =
   | 'darkShadow'
   | 'textGeometry'
   | 'textLines'
+  | 'documentDistance'
   | 'timeout';
 
 // ── Internal types ───────────────────────────────────────────────
@@ -514,6 +579,15 @@ export interface AnalysisContext {
    * Bits-per-pixel must be measured against the pixels the file encodes.
    */
   encodedPixels?: number;
+  /**
+   * The page's own size in pixels, when boundary detection found it.
+   *
+   * Absent means the page was never located, not that it fills the frame — the
+   * detector declines far more often on photographs than on scans. Anything
+   * reading this must treat absence as "unknown" and stay silent, never as
+   * "the page is fine".
+   */
+  documentRegion?: { width: number; height: number };
   /** Signed Laplacian and its statistics — computed once, shared */
   laplacianSigned?: import('./laplacian.js').SignedLaplacian;
   /** Greyscale raw pixel data (computed once, shared) */
@@ -539,6 +613,26 @@ export interface AnalysisContext {
    * resize, so blockiness must be measured on native-resolution pixels.
    */
   fullResGrey?: {
+    data: Buffer;
+    width: number;
+    height: number;
+  };
+  /**
+   * The uncropped frame in greyscale, kept only when a crop was taken.
+   *
+   * Text-line measurement thresholds whatever surface it is handed into ink and
+   * paper, so the surface changes the answer. Cropping to an ID card leaves the
+   * card's portrait as the darkest thing in the picture, and the split lands
+   * between paper and portrait rather than between paper and print — the card
+   * comes back as a single 528px "letter". The same card inside its original
+   * frame splits against the desk, and the print resolves: twelve lines with a
+   * 5.5px lowercase body, which is the honest reading and well under the floor.
+   *
+   * Measured across the 68 cropped images in a 450-image sample: 12 were
+   * readable only from the crop, 18 only from the frame, and none from both. So
+   * there is nothing to reconcile — one surface works or the other does.
+   */
+  uncroppedGrey?: {
     data: Buffer;
     width: number;
     height: number;
