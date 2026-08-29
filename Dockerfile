@@ -35,6 +35,11 @@ COPY test/fixtures/real/preflight-worker.mjs ./test/fixtures/real/preflight-work
 COPY test/fixtures/real/label.html ./test/fixtures/real/label.html
 COPY test/fixtures/real/review.html ./test/fixtures/real/review.html
 COPY test/fixtures/real/manifest.json ./test/fixtures/real/manifest.json
+# Named individually, every one of them, so adding a file the server reads
+# means adding it here too. duplicates.json was added and this line was not,
+# and the server degraded exactly as written — no skips, no probes, the full
+# 5065 served — without a word in the logs to say why.
+COPY test/fixtures/real/duplicates.json ./test/fixtures/real/duplicates.json
 
 ENV PORT=8080
 ENV LABELS_PATH=/data/labels.json

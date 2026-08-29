@@ -832,6 +832,35 @@ function reportDurability() {
 }
 reportDurability();
 
+/**
+ * Say out loud whether the duplicate index arrived.
+ *
+ * Without it the server still runs, and every duplicate-related feature simply
+ * stops: nothing is skipped, no probes are seeded, and the queue is the full
+ * manifest. That is the right way to degrade and the wrong way to do it in
+ * silence — the file was left out of the Dockerfile's COPY list on its first
+ * deploy and the only visible symptom was a queue 74 images longer than
+ * expected, which nobody would notice.
+ */
+async function reportDuplicateIndex() {
+  try {
+    const groups = JSON.parse(await readFile(join(BASE, 'duplicates.json'), 'utf-8')).groups ?? [];
+    const probes = pickProbeGroups(groups);
+    console.log(
+      `Duplicate index: ${groups.length} groups, ${probes.length} seeded as rater-agreement probes.`,
+    );
+  } catch {
+    console.warn('');
+    console.warn('  WARNING: duplicates.json not found.');
+    console.warn('  Duplicate images will be served again and no agreement');
+    console.warn('  probes are seeded, so /api/agreement stays empty. If this');
+    console.warn('  is a container, check the COPY lines in the Dockerfile.');
+    console.warn('  Regenerate with: node scripts/find-duplicates.mjs');
+    console.warn('');
+  }
+}
+await reportDuplicateIndex();
+
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Labeling server running on 0.0.0.0:${PORT}`);
   console.log(`Labels file: ${LABELS_PATH}`);
